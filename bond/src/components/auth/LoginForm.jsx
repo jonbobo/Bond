@@ -1,26 +1,28 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import './LoginForm.css'; // Import your custom CSS
 
 const LoginForm = () => {
-    const [isLogin, setIsLogin] = useState(true);
+    const [currentView, setCurrentView] = useState('login'); // 'login', 'register', 'forgot'
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [username, setUsername] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setMessage('');
 
         try {
-            if (isLogin) {
+            if (currentView === 'login') {
                 await signInWithEmailAndPassword(auth, email, password);
                 console.log('Login successful!');
-            } else {
+            } else if (currentView === 'register') {
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 console.log('Account created successfully!', userCredential.user.uid);
 
@@ -30,6 +32,10 @@ const LoginForm = () => {
                     email: email,
                     username: username
                 });
+            } else if (currentView === 'forgot') {
+                await sendPasswordResetEmail(auth, email);
+                setMessage('Password reset email sent! Check your inbox.');
+                console.log('Password reset email sent to:', email);
             }
         } catch (err) {
             console.error('Authentication error:', err);
@@ -39,12 +45,23 @@ const LoginForm = () => {
         }
     };
 
+    const switchView = (view) => {
+        setCurrentView(view);
+        setError('');
+        setMessage('');
+        setEmail('');
+        setPassword('');
+        setUsername('');
+    };
+
     return (
         <div className="login-page-wrapper">
             <div className="login-container">
                 <form onSubmit={handleSubmit}>
-                    <h1 id={isLogin ? "login-page" : "signup-page"}>
-                        {isLogin ? 'Bond' : 'Join Bond'}
+                    <h1 id={currentView === 'login' ? "login-page" : currentView === 'register' ? "signup-page" : "forgot-password"}>
+                        {currentView === 'login' ? 'Bond' :
+                            currentView === 'register' ? 'Join Bond' :
+                                'Reset Password'}
                     </h1>
 
                     <div className="input-box">
@@ -59,7 +76,7 @@ const LoginForm = () => {
                         <i className="bx bxs-user"></i>
                     </div>
 
-                    {!isLogin && (
+                    {currentView === 'register' && (
                         <div className="input-box">
                             <input
                                 type="text"
@@ -73,25 +90,34 @@ const LoginForm = () => {
                         </div>
                     )}
 
-                    <div className="input-box">
-                        <input
-                            type="password"
-                            placeholder="Password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            minLength="6"
-                            disabled={loading}
-                        />
-                        <i className="bx bxs-lock-alt"></i>
-                    </div>
+                    {(currentView === 'login' || currentView === 'register') && (
+                        <div className="input-box">
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                                minLength="6"
+                                disabled={loading}
+                            />
+                            <i className="bx bxs-lock-alt"></i>
+                        </div>
+                    )}
 
-                    {isLogin && (
+                    {currentView === 'login' && (
                         <div className="remember-forgot">
                             <label>
                                 <input type="checkbox" /> Remember me
                             </label>
-                            <a href="#forgot">Forgot Password?</a>
+                            <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => switchView('forgot')}
+                                disabled={loading}
+                            >
+                                Forgot Password?
+                            </button>
                         </div>
                     )}
 
@@ -109,26 +135,66 @@ const LoginForm = () => {
                         </div>
                     )}
 
+                    {message && (
+                        <div style={{
+                            color: '#48bb78',
+                            textAlign: 'center',
+                            margin: '15px 0',
+                            background: 'rgba(72, 187, 120, 0.1)',
+                            padding: '10px',
+                            borderRadius: '5px',
+                            border: '1px solid rgba(72, 187, 120, 0.3)'
+                        }}>
+                            {message}
+                        </div>
+                    )}
+
                     <button type="submit" disabled={loading} className="btn">
-                        {loading ? 'Loading...' : (isLogin ? 'Login' : 'Sign Up')}
+                        {loading ? 'Loading...' :
+                            currentView === 'login' ? 'Login' :
+                                currentView === 'register' ? 'Sign Up' :
+                                    'Send Reset Email'}
                     </button>
 
                     <div className="register-link">
                         <p>
-                            {isLogin ? "Don't have an account? " : "Already have an account? "}
-                            <button
-                                type="button"
-                                className="link-button"
-                                onClick={() => {
-                                    setIsLogin(!isLogin);
-                                    setError('');
-                                    setEmail('');
-                                    setPassword('');
-                                    setUsername('');
-                                }}
-                            >
-                                {isLogin ? 'Register' : 'Login'}
-                            </button>
+                            {currentView === 'login' ? (
+                                <>
+                                    Don't have an account?{' '}
+                                    <button
+                                        type="button"
+                                        className="link-button"
+                                        onClick={() => switchView('register')}
+                                        disabled={loading}
+                                    >
+                                        Register
+                                    </button>
+                                </>
+                            ) : currentView === 'register' ? (
+                                <>
+                                    Already have an account?{' '}
+                                    <button
+                                        type="button"
+                                        className="link-button"
+                                        onClick={() => switchView('login')}
+                                        disabled={loading}
+                                    >
+                                        Login
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    Remember your password?{' '}
+                                    <button
+                                        type="button"
+                                        className="link-button"
+                                        onClick={() => switchView('login')}
+                                        disabled={loading}
+                                    >
+                                        Back to Login
+                                    </button>
+                                </>
+                            )}
                         </p>
                     </div>
                 </form>
