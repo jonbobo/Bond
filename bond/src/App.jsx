@@ -1,12 +1,20 @@
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './components/services/firebase';
 import LoginForm from './components/auth/LoginForm';
 
-function App() {
-    const [user, loading, error] = useAuthState(auth);
+// Layout Components
+import Header from './components/common/Header';
+// Page Components
+import HomePage from './components/pages/HomePage';
+import MessagesPage from './components/pages/MessagesPage';
+import ConnectionsPage from './components/pages/ConnectionsPage';
 
-    // Show loading spinner while checking auth state
+// Protected Route Component
+const ProtectedRoute = ({ children }) => {
+    const [user, loading] = useAuthState(auth);
+
     if (loading) {
         return (
             <div className="loading-container">
@@ -17,43 +25,96 @@ function App() {
         );
     }
 
-    // Show error if there's an auth error
-    if (error) {
-        return (
-            <div className="error-container">
-                <p>Error: {error.message}</p>
-                <button onClick={() => window.location.reload()}>
-                    Retry
-                </button>
-            </div>
-        );
-    }
+    return user ? children : <Navigate to="/login" />;
+};
 
-    // If user is logged in, show a simple welcome message for testing
-    if (user) {
+// Public Route Component (redirect if already logged in)
+const PublicRoute = ({ children }) => {
+    const [user, loading] = useAuthState(auth);
+
+    if (loading) {
         return (
-            <div className="welcome-container">
-                <div className="welcome-card">
-                    <h1>Welcome to Bond!</h1>
-                    <p>Authentication successful!</p>
-                    <div className="user-info">
-                        <p><strong>Email:</strong> {user.email}</p>
-                        <p><strong>User ID:</strong> {user.uid}</p>
-                        <p><strong>Account created:</strong> {user.metadata.creationTime}</p>
-                    </div>
-                    <button
-                        onClick={() => auth.signOut()}
-                        className="signout-btn"
-                    >
-                        Sign Out
-                    </button>
+            <div className="loading-container">
+                <div className="loading-spinner">
+                    <p>Loading...</p>
                 </div>
             </div>
         );
     }
 
-    // If no user, show login form
-    return <LoginForm />;
+    return user ? <Navigate to="/" /> : children;
+};
+
+// Main Layout Component
+const MainLayout = ({ children }) => {
+    return (
+        <div className="app-layout">
+            <Header />
+            <div className="app-content">
+                {/* <Sidebar /> */}
+                <main className="main-content">
+                    {children}
+                </main>
+            </div>
+        </div>
+    );
+};
+
+function App() {
+    return (
+        <Router>
+            <div className="App">
+                <Routes>
+                    {/* Public Routes */}
+                    <Route
+                        path="/login"
+                        element={
+                            <PublicRoute>
+                                <LoginForm />
+                            </PublicRoute>
+                        }
+                    />
+
+                    {/* Protected Routes */}
+                    <Route
+                        path="/"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout>
+                                    <HomePage />
+                                </MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+
+                    <Route
+                        path="/messages"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout>
+                                    <MessagesPage />
+                                </MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+
+                    <Route
+                        path="/connections"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout>
+                                    <ConnectionsPage />
+                                </MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+
+                    {/* Redirect any unknown routes to home */}
+                    <Route path="*" element={<Navigate to="/" />} />
+                </Routes>
+            </div>
+        </Router>
+    );
 }
 
 export default App;
