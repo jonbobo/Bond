@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../services/firebase';
+import './LoginForm.css'; // Import your custom CSS
 
 const LoginForm = () => {
     const [isLogin, setIsLogin] = useState(true);
@@ -39,13 +40,14 @@ const LoginForm = () => {
     };
 
     return (
-        <div className="login-container">
-            <div className="login-card">
-                <h1 className="app-title">Bond</h1>
-                <p className="app-subtitle">Connect without the clutter</p>
+        <div className="login-page-wrapper">
+            <div className="login-container">
+                <form onSubmit={handleSubmit}>
+                    <h1 id={isLogin ? "login-page" : "signup-page"}>
+                        {isLogin ? 'Bond' : 'Join Bond'}
+                    </h1>
 
-                <form onSubmit={handleSubmit} className="login-form">
-                    <div className="form-group">
+                    <div className="input-box">
                         <input
                             type="email"
                             placeholder="Email"
@@ -54,10 +56,11 @@ const LoginForm = () => {
                             required
                             disabled={loading}
                         />
+                        <i className="bx bxs-user"></i>
                     </div>
 
                     {!isLogin && (
-                        <div className="form-group">
+                        <div className="input-box">
                             <input
                                 type="text"
                                 placeholder="Username"
@@ -66,10 +69,11 @@ const LoginForm = () => {
                                 required
                                 disabled={loading}
                             />
+                            <i className="bx bxs-user"></i>
                         </div>
                     )}
 
-                    <div className="form-group">
+                    <div className="input-box">
                         <input
                             type="password"
                             placeholder="Password"
@@ -79,32 +83,55 @@ const LoginForm = () => {
                             minLength="6"
                             disabled={loading}
                         />
+                        <i className="bx bxs-lock-alt"></i>
                     </div>
 
-                    {error && <div className="error-message">{error}</div>}
+                    {isLogin && (
+                        <div className="remember-forgot">
+                            <label>
+                                <input type="checkbox" /> Remember me
+                            </label>
+                            <a href="#forgot">Forgot Password?</a>
+                        </div>
+                    )}
 
-                    <button type="submit" disabled={loading} className="submit-btn">
-                        {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Sign Up')}
+                    {error && (
+                        <div style={{
+                            color: '#ff6b6b',
+                            textAlign: 'center',
+                            margin: '15px 0',
+                            background: 'rgba(255, 107, 107, 0.1)',
+                            padding: '10px',
+                            borderRadius: '5px',
+                            border: '1px solid rgba(255, 107, 107, 0.3)'
+                        }}>
+                            {error}
+                        </div>
+                    )}
+
+                    <button type="submit" disabled={loading} className="btn">
+                        {loading ? 'Loading...' : (isLogin ? 'Login' : 'Sign Up')}
                     </button>
+
+                    <div className="register-link">
+                        <p>
+                            {isLogin ? "Don't have an account? " : "Already have an account? "}
+                            <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => {
+                                    setIsLogin(!isLogin);
+                                    setError('');
+                                    setEmail('');
+                                    setPassword('');
+                                    setUsername('');
+                                }}
+                            >
+                                {isLogin ? 'Register' : 'Login'}
+                            </button>
+                        </p>
+                    </div>
                 </form>
-
-                <p className="toggle-text">
-                    {isLogin ? "Don't have an account? " : "Already have an account? "}
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setIsLogin(!isLogin);
-                            setError('');
-                            setEmail('');
-                            setPassword('');
-                            setUsername('');
-                        }}
-                        className="toggle-btn"
-                        disabled={loading}
-                    >
-                        {isLogin ? 'Sign Up' : 'Sign In'}
-                    </button>
-                </p>
             </div>
         </div>
     );
