@@ -6,6 +6,7 @@ import LoginForm from './components/auth/LoginForm';
 
 // Layout Components
 import Header from './components/common/Header';
+import Sidebar from './components/common/Sidebar';
 // Page Components
 import HomePage from './components/pages/HomePage';
 import MessagesPage from './components/pages/MessagesPage';
@@ -51,7 +52,7 @@ const MainLayout = ({ children }) => {
         <div className="app-layout">
             <Header />
             <div className="app-content">
-                {/* <Sidebar /> */}
+                <Sidebar />
                 <main className="main-content">
                     {children}
                 </main>

@@ -60,7 +60,7 @@ const LoginForm = () => {
                 <form onSubmit={handleSubmit}>
                     <h1 id={currentView === 'login' ? "login-page" : currentView === 'register' ? "signup-page" : "forgot-password"}>
                         {currentView === 'login' ? 'Bond' :
-                            currentView === 'register' ? 'Join Bond' :
+                            currentView === 'register' ? 'Bond' :
                                 'Reset Password'}
                     </h1>
 
