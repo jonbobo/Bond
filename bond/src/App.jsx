@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './components/services/firebase';
-import LoginForm from './components/Auth/LoginForm';
+import LoginForm from './components/auth/LoginForm';
 
 function App() {
     const [user, loading, error] = useAuthState(auth);
