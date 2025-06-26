@@ -82,6 +82,12 @@
     background: white;
 }
 
+.feed-list {
+  /* max-height: 440px (if a scroll bar is needed below recent posts) */
+    overflow-y: auto;
+    padding-right: 8px; /* Optional: space for scrollbar */
+}
+
 /* Post Cards */
 .post-card {
     background: white;

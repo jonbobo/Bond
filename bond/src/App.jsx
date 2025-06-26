@@ -8,9 +8,11 @@ import LoginForm from './components/auth/LoginForm';
 import Header from './components/common/Header';
 import Sidebar from './components/common/Sidebar';
 // Page Components
-import HomePage from './components/pages/HomePage';
+import HomePage from './components/pages/Homepage';
 import MessagesPage from './components/pages/MessagesPage';
 import ConnectionsPage from './components/pages/ConnectionsPage';
+
+import { UserProvider } from './context/UserContext';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -63,58 +65,60 @@ const MainLayout = ({ children }) => {
 
 function App() {
     return (
-        <Router>
-            <div className="App">
-                <Routes>
-                    {/* Public Routes */}
-                    <Route
-                        path="/login"
-                        element={
-                            <PublicRoute>
-                                <LoginForm />
-                            </PublicRoute>
-                        }
-                    />
+        <UserProvider>
+            <Router>
+                <div className="App">
+                    <Routes>
+                        {/* Public Routes */}
+                        <Route
+                            path="/login"
+                            element={
+                                <PublicRoute>
+                                    <LoginForm />
+                                </PublicRoute>
+                            }
+                        />
 
-                    {/* Protected Routes */}
-                    <Route
-                        path="/"
-                        element={
-                            <ProtectedRoute>
-                                <MainLayout>
-                                    <HomePage />
-                                </MainLayout>
-                            </ProtectedRoute>
-                        }
-                    />
+                        {/* Protected Routes */}
+                        <Route
+                            path="/"
+                            element={
+                                <ProtectedRoute>
+                                    <MainLayout>
+                                        <HomePage />
+                                    </MainLayout>
+                                </ProtectedRoute>
+                            }
+                        />
 
-                    <Route
-                        path="/messages"
-                        element={
-                            <ProtectedRoute>
-                                <MainLayout>
-                                    <MessagesPage />
-                                </MainLayout>
-                            </ProtectedRoute>
-                        }
-                    />
+                        <Route
+                            path="/messages"
+                            element={
+                                <ProtectedRoute>
+                                    <MainLayout>
+                                        <MessagesPage />
+                                    </MainLayout>
+                                </ProtectedRoute>
+                            }
+                        />
 
-                    <Route
-                        path="/connections"
-                        element={
-                            <ProtectedRoute>
-                                <MainLayout>
-                                    <ConnectionsPage />
-                                </MainLayout>
-                            </ProtectedRoute>
-                        }
-                    />
+                        <Route
+                            path="/connections"
+                            element={
+                                <ProtectedRoute>
+                                    <MainLayout>
+                                        <ConnectionsPage />
+                                    </MainLayout>
+                                </ProtectedRoute>
+                            }
+                        />
 
-                    {/* Redirect any unknown routes to home */}
-                    <Route path="*" element={<Navigate to="/" />} />
-                </Routes>
-            </div>
-        </Router>
+                        {/* Redirect any unknown routes to home */}
+                        <Route path="*" element={<Navigate to="/" />} />
+                    </Routes>
+                </div>
+            </Router>
+        </UserProvider>
     );
 }
 
