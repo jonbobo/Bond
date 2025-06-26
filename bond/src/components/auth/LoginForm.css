@@ -139,3 +139,10 @@
     font-size: 32px;
     text-align: center;
 }
+.error-message {
+    color: #ff4d4f; /* or 'red', or any HEX/RGB color */
+    padding: 8px;
+    margin-top: 8px;
+    font-size: 14px;
+    text-align: center;
+}
