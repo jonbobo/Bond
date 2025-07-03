@@ -1,7 +1,9 @@
+// File: src/components/pages/HomePage.jsx
+// Update this existing file
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../services/firebase';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getFeedPosts, togglePostLike } from '../services/postUtils';
 import { getCurrentUserProfile, getUserFriends } from '../services/authUtils';
 import PostModal from '../modals/PostModal';
@@ -97,33 +99,56 @@ const HomePage = () => {
 
             const unsubscribe = onSnapshot(
                 postsQuery,
-                (querySnapshot) => {
+                async (querySnapshot) => {
                     console.log('🔄 Real-time posts update received');
 
                     const updatedPosts = [];
-                    querySnapshot.forEach((doc) => {
-                        const postData = doc.data();
 
-                        // Use cached author info or create default
-                        let authorInfo = {
-                            id: postData.authorId,
-                            username: 'Unknown',
-                            displayName: 'Unknown User',
-                            profilePicture: null
-                        };
+                    // Process each post and get author information
+                    for (const docSnap of querySnapshot.docs) {
+                        const postData = docSnap.data();
 
-                        // Try to get better author info from existing posts
-                        const existingPost = posts.find(p => p.authorId === postData.authorId);
-                        if (existingPost && existingPost.author) {
-                            authorInfo = existingPost.author;
+                        try {
+                            // Get author information from Firestore
+                            const authorDoc = await getDoc(doc(db, "users", postData.authorId));
+                            let authorInfo = {
+                                id: postData.authorId,
+                                username: 'Unknown',
+                                displayName: 'Unknown User',
+                                profilePicture: null
+                            };
+
+                            if (authorDoc.exists()) {
+                                const authorData = authorDoc.data();
+                                authorInfo = {
+                                    id: postData.authorId,
+                                    username: authorData.username || 'unknown',
+                                    displayName: authorData.displayName || authorData.username || 'Unknown User',
+                                    profilePicture: authorData.profilePicture || null
+                                };
+                            }
+
+                            updatedPosts.push({
+                                id: docSnap.id,
+                                ...postData,
+                                author: authorInfo
+                            });
+
+                        } catch (error) {
+                            console.error('Error getting author info for post:', docSnap.id, error);
+                            // Add post with default author info
+                            updatedPosts.push({
+                                id: docSnap.id,
+                                ...postData,
+                                author: {
+                                    id: postData.authorId,
+                                    username: 'unknown',
+                                    displayName: 'Unknown User',
+                                    profilePicture: null
+                                }
+                            });
                         }
-
-                        updatedPosts.push({
-                            id: doc.id,
-                            ...postData,
-                            author: authorInfo
-                        });
-                    });
+                    }
 
                     // Sort by creation date (newest first)
                     updatedPosts.sort((a, b) => {
@@ -132,7 +157,7 @@ const HomePage = () => {
                         return bTime - aTime;
                     });
 
-                    console.log('🔄 Updated posts:', updatedPosts.length);
+                    console.log('🔄 Updated posts with authors:', updatedPosts.length);
                     setPosts(updatedPosts);
                     setLoading(false);
                     setInitialLoad(false);
