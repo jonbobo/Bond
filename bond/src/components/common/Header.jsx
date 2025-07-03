@@ -1,11 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../services/firebase';
-
+import { getCurrentUserProfile } from '../services/authUtils';
+import NotificationIcon from '../icons/NotificationIcon';
 
 const Header = () => {
     const [user] = useAuthState(auth);
     const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const [userProfile, setUserProfile] = useState(null);
+
+    useEffect(() => {
+        const loadUserProfile = async () => {
+            if (user) {
+                try {
+                    const profile = await getCurrentUserProfile();
+                    setUserProfile(profile);
+                } catch (error) {
+                    console.error('Error loading user profile:', error);
+                }
+            }
+        };
+        loadUserProfile();
+    }, [user]);
 
     const handleSignOut = async () => {
         try {
@@ -17,6 +33,24 @@ const Header = () => {
 
     const toggleProfileMenu = () => {
         setShowProfileMenu(!showProfileMenu);
+    };
+
+    const getDisplayName = () => {
+        if (userProfile?.displayName) {
+            return userProfile.displayName;
+        }
+        if (userProfile?.username) {
+            return userProfile.username;
+        }
+        if (user?.email) {
+            return user.email.split('@')[0];
+        }
+        return 'User';
+    };
+
+    const getAvatarInitials = () => {
+        const displayName = getDisplayName();
+        return displayName.charAt(0).toUpperCase();
     };
 
     return (
@@ -39,23 +73,33 @@ const Header = () => {
 
                 {/* User Menu */}
                 <div className="header-user">
-                    <div className="user-profile" onClick={toggleProfileMenu}>
-                        <div className="user-avatar">
-                            {user?.email?.charAt(0).toUpperCase() && 'default profile picture using first letter of email'}
+                    {/* Notification Icon - positioned before profile */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        position: 'relative'
+                    }}>
+                        <NotificationIcon />
+
+                        <div className="user-profile" onClick={toggleProfileMenu}>
+                            <div className="user-avatar">
+                                {getAvatarInitials()}
+                            </div>
+                            <span className="user-name">
+                                {getDisplayName()}
+                            </span>
+                            <svg
+                                className={`dropdown-icon ${showProfileMenu ? 'open' : ''}`}
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                            >
+                                <polyline points="6,9 12,15 18,9"></polyline>
+                            </svg>
                         </div>
-                        <span className="user-name">
-                            {user?.email?.split('@')[0] || 'User'}
-                        </span>
-                        <svg
-                            className={`dropdown-icon ${showProfileMenu ? 'open' : ''}`}
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                        >
-                            <polyline points="6,9 12,15 18,9"></polyline>
-                        </svg>
                     </div>
 
                     {/* Profile Dropdown */}
@@ -64,10 +108,11 @@ const Header = () => {
                             <div className="dropdown-header">
                                 <div className="user-info">
                                     <div className="user-avatar large">
-                                        {user?.email?.charAt(0).toUpperCase() || 'U'}
+                                        {getAvatarInitials()}
                                     </div>
                                     <div className="user-details">
-                                        <p className="user-email">{user?.email}</p>
+                                        <p className="user-email">{getDisplayName()}</p>
+                                        <p className="user-id">Email: {user?.email}</p>
                                         <p className="user-id">ID: {user?.uid?.slice(0, 8)}...</p>
                                     </div>
                                 </div>

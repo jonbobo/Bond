@@ -26,7 +26,9 @@ export async function isUsernameAvailable(username) {
         return !docSnap.exists();
     } catch (error) {
         console.error("Error checking username availability:", error);
-        throw new Error("Unable to check username availability");
+        // If there's an error, assume username is available to allow registration
+        // This prevents registration from being blocked by database issues
+        return true;
     }
 }
 
@@ -96,27 +98,49 @@ export async function registerUser(email, password, username, rememberMe = false
         const user = userCredential.user;
 
         // Store username in Firestore (document ID = username, contains user data)
-        await setDoc(doc(db, "usernames", username.toLowerCase()), {
-            uid: user.uid,
-            email: email,
-            displayName: username,
-            createdAt: new Date().toISOString()
-        });
+        try {
+            await setDoc(doc(db, "usernames", username.toLowerCase()), {
+                uid: user.uid,
+                email: email,
+                displayName: username,
+                createdAt: new Date().toISOString()
+            });
+        } catch (firestoreError) {
+            console.error("Error storing username mapping:", firestoreError);
+            // Continue with registration even if username mapping fails
+        }
 
         // Store user profile in separate users collection
-        await setDoc(doc(db, "users", user.uid), {
-            email: email,
-            username: username.toLowerCase(),
-            displayName: username,
-            createdAt: new Date().toISOString(),
-            profilePicture: null,
-            bio: ""
-        });
+        try {
+            await setDoc(doc(db, "users", user.uid), {
+                email: email,
+                username: username.toLowerCase(),
+                displayName: username,
+                createdAt: new Date().toISOString(),
+                profilePicture: null,
+                bio: "",
+                friends: [], // Array of friend user IDs
+                friendRequests: [], // Array of pending friend request IDs
+                sentRequests: [] // Array of sent friend request IDs
+            });
+        } catch (firestoreError) {
+            console.error("Error storing user profile:", firestoreError);
+            // Continue with registration even if profile creation fails
+        }
 
         return user;
     } catch (error) {
         console.error("Registration error:", error);
-        throw error;
+        // Provide more specific error messages
+        if (error.code === 'auth/email-already-in-use') {
+            throw new Error("This email is already registered. Please use a different email or try logging in.");
+        } else if (error.code === 'auth/weak-password') {
+            throw new Error("Password is too weak. Please choose a stronger password.");
+        } else if (error.code === 'auth/invalid-email') {
+            throw new Error("Invalid email address format.");
+        } else {
+            throw new Error(error.message || "Registration failed. Please try again.");
+        }
     }
 }
 
