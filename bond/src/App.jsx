@@ -7,10 +7,15 @@ import LoginForm from './components/auth/LoginForm';
 // Layout Components
 import Header from './components/common/Header';
 import Sidebar from './components/common/Sidebar';
+import ContactsSidebar from './components/common/ContactsSidebar';
+
 // Page Components
 import HomePage from './components/pages/HomePage';
 import MessagesPage from './components/pages/MessagesPage';
 import ConnectionsPage from './components/pages/ConnectionsPage';
+
+// Chat Components
+import ChatManager from './components/chat/ChatManager';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -56,7 +61,9 @@ const MainLayout = ({ children }) => {
                 <main className="main-content">
                     {children}
                 </main>
+                <ContactsSidebar />
             </div>
+            <ChatManager />
         </div>
     );
 };

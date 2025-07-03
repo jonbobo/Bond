@@ -4,7 +4,8 @@ import {
     sendPasswordResetEmail,
     setPersistence,
     browserLocalPersistence,
-    browserSessionPersistence
+    browserSessionPersistence,
+    updateProfile
 } from 'firebase/auth';
 import {
     collection,
@@ -109,6 +110,16 @@ export async function registerUser(email, password, username, rememberMe = false
         const user = userCredential.user;
         console.log('✅ User created successfully:', user.uid);
 
+        // Update Firebase Auth profile with displayName
+        try {
+            await updateProfile(user, {
+                displayName: username
+            });
+            console.log('✅ Firebase Auth profile updated with displayName');
+        } catch (profileError) {
+            console.error("⚠️ Error updating Firebase Auth profile:", profileError);
+        }
+
         // Store username in Firestore
         try {
             await setDoc(doc(db, "usernames", username.toLowerCase()), {
@@ -133,7 +144,9 @@ export async function registerUser(email, password, username, rememberMe = false
                 bio: "",
                 friends: [],
                 friendRequests: [],
-                sentRequests: []
+                sentRequests: [],
+                isOnline: false,
+                lastSeen: new Date()
             });
             console.log('✅ User profile stored');
         } catch (firestoreError) {
@@ -185,6 +198,20 @@ export async function loginUser(emailOrUsername, password, rememberMe = false) {
 
         // Sign in
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+        // Get user profile to update Firebase Auth displayName if needed
+        try {
+            const userProfile = await getCurrentUserProfile();
+            if (userProfile && userProfile.displayName && !userCredential.user.displayName) {
+                await updateProfile(userCredential.user, {
+                    displayName: userProfile.displayName
+                });
+                console.log('✅ Updated Firebase Auth displayName from profile');
+            }
+        } catch (profileError) {
+            console.error("⚠️ Error updating displayName on login:", profileError);
+        }
+
         console.log('✅ Login successful:', userCredential.user.uid);
         return userCredential.user;
 
@@ -247,7 +274,11 @@ export async function getCurrentUserProfile() {
 
         if (docSnap.exists()) {
             console.log('✅ User profile found');
-            return docSnap.data();
+            return {
+                ...docSnap.data(),
+                // Ensure we always return the current displayName from auth or firestore
+                displayName: docSnap.data().displayName || auth.currentUser.displayName || auth.currentUser.email?.split('@')[0]
+            };
         } else {
             console.log('⚠️ No user profile found');
             return null;
