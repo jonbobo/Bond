@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { useLocation } from 'react-router-dom'; // Add this import
 import { auth, db } from '../services/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import {
@@ -26,10 +27,11 @@ const dataCache = {
 
 const ConnectionsPage = () => {
     const [user] = useAuthState(auth);
+    const location = useLocation(); // Add this hook
 
     // Get initial tab from URL parameter
     const getInitialTab = () => {
-        const urlParams = new URLSearchParams(window.location.search);
+        const urlParams = new URLSearchParams(location.search); // Use location.search
         const tabParam = urlParams.get('tab');
         return ['friends', 'requests', 'suggestions'].includes(tabParam) ? tabParam : 'friends';
     };
@@ -43,14 +45,14 @@ const ConnectionsPage = () => {
     const [actionLoading, setActionLoading] = useState({});
     const [userState, setUserState] = useState({});
 
-    // Handle URL parameter changes
+    // Handle URL parameter changes - listen to location changes
     useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
+        const urlParams = new URLSearchParams(location.search);
         const tabParam = urlParams.get('tab');
         if (tabParam && ['friends', 'requests', 'suggestions'].includes(tabParam)) {
             setActiveTab(tabParam);
         }
-    }, []);
+    }, [location.search]); // Dependency on location.search will trigger when URL params change
 
     useEffect(() => {
         const loadData = async () => {
