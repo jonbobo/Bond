@@ -1,4 +1,3 @@
-// services/authUtils.js
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
@@ -21,13 +20,14 @@ import { auth, db, isValidEmail, isStrongPassword, isValidUsername } from './fir
 // Check if username is available
 export async function isUsernameAvailable(username) {
     try {
+        console.log('🔍 Checking username availability:', username);
         const docRef = doc(db, "usernames", username.toLowerCase());
         const docSnap = await getDoc(docRef);
-        return !docSnap.exists();
+        const available = !docSnap.exists();
+        console.log('🔍 Username available:', available);
+        return available;
     } catch (error) {
-        console.error("Error checking username availability:", error);
-        // If there's an error, assume username is available to allow registration
-        // This prevents registration from being blocked by database issues
+        console.error("❌ Error checking username availability:", error);
         return true;
     }
 }
@@ -35,16 +35,19 @@ export async function isUsernameAvailable(username) {
 // Get email from username
 export async function getEmailFromUsername(username) {
     try {
+        console.log('🔍 Looking up email for username:', username);
         const docRef = doc(db, "usernames", username.toLowerCase());
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-            return docSnap.data().email;
+            const email = docSnap.data().email;
+            console.log('✅ Found email for username');
+            return email;
         } else {
             throw new Error("Username not found");
         }
     } catch (error) {
-        console.error("Error getting email from username:", error);
+        console.error("❌ Error getting email from username:", error);
         throw error;
     }
 }
@@ -52,23 +55,28 @@ export async function getEmailFromUsername(username) {
 // Get username from user ID
 export async function getUserUsername(uid) {
     try {
-        // Search through usernames collection to find the document where uid matches
+        console.log('🔍 Getting username for UID:', uid);
         const usernamesQuery = query(collection(db, "usernames"), where("uid", "==", uid));
         const querySnapshot = await getDocs(usernamesQuery);
 
         if (!querySnapshot.empty) {
-            return querySnapshot.docs[0].id; // Document ID is the username
+            const username = querySnapshot.docs[0].id;
+            console.log('✅ Found username:', username);
+            return username;
         } else {
+            console.log('⚠️ No username found for UID, returning "User"');
             return "User";
         }
     } catch (error) {
-        console.error("Error getting username:", error);
+        console.error("❌ Error getting username:", error);
         return "User";
     }
 }
 
 // Register new user
 export async function registerUser(email, password, username, rememberMe = false) {
+    console.log('🚀 Starting registration process:', { email, username, rememberMe });
+
     // Validation
     if (!isValidEmail(email)) {
         throw new Error("Invalid email format");
@@ -89,15 +97,19 @@ export async function registerUser(email, password, username, rememberMe = false
     }
 
     try {
+        console.log('🔐 Setting persistence and creating user...');
+
         // Set persistence
         const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
         await setPersistence(auth, persistence);
+        console.log('✅ Persistence set:', rememberMe ? 'Local' : 'Session');
 
         // Create user
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
+        console.log('✅ User created successfully:', user.uid);
 
-        // Store username in Firestore (document ID = username, contains user data)
+        // Store username in Firestore
         try {
             await setDoc(doc(db, "usernames", username.toLowerCase()), {
                 uid: user.uid,
@@ -105,12 +117,12 @@ export async function registerUser(email, password, username, rememberMe = false
                 displayName: username,
                 createdAt: new Date().toISOString()
             });
+            console.log('✅ Username mapping stored');
         } catch (firestoreError) {
-            console.error("Error storing username mapping:", firestoreError);
-            // Continue with registration even if username mapping fails
+            console.error("⚠️ Error storing username mapping:", firestoreError);
         }
 
-        // Store user profile in separate users collection
+        // Store user profile
         try {
             await setDoc(doc(db, "users", user.uid), {
                 email: email,
@@ -119,18 +131,21 @@ export async function registerUser(email, password, username, rememberMe = false
                 createdAt: new Date().toISOString(),
                 profilePicture: null,
                 bio: "",
-                friends: [], // Array of friend user IDs
-                friendRequests: [], // Array of pending friend request IDs
-                sentRequests: [] // Array of sent friend request IDs
+                friends: [],
+                friendRequests: [],
+                sentRequests: []
             });
+            console.log('✅ User profile stored');
         } catch (firestoreError) {
-            console.error("Error storing user profile:", firestoreError);
-            // Continue with registration even if profile creation fails
+            console.error("⚠️ Error storing user profile:", firestoreError);
         }
 
         return user;
     } catch (error) {
-        console.error("Registration error:", error);
+        console.error("❌ Registration error:", error);
+        console.error("❌ Error code:", error.code);
+        console.error("❌ Error message:", error.message);
+
         // Provide more specific error messages
         if (error.code === 'auth/email-already-in-use') {
             throw new Error("This email is already registered. Please use a different email or try logging in.");
@@ -138,6 +153,8 @@ export async function registerUser(email, password, username, rememberMe = false
             throw new Error("Password is too weak. Please choose a stronger password.");
         } else if (error.code === 'auth/invalid-email') {
             throw new Error("Invalid email address format.");
+        } else if (error.code === 'auth/invalid-credential') {
+            throw new Error("Invalid credentials provided. Please check your email and password.");
         } else {
             throw new Error(error.message || "Registration failed. Please try again.");
         }
@@ -146,42 +163,76 @@ export async function registerUser(email, password, username, rememberMe = false
 
 // Login user (supports email or username)
 export async function loginUser(emailOrUsername, password, rememberMe = false) {
+    console.log('🚀 Starting login process:', { emailOrUsername, rememberMe });
+
     let email = emailOrUsername;
 
     try {
         // Check if input is email or username
         if (!isValidEmail(emailOrUsername)) {
+            console.log('🔍 Input appears to be username, looking up email...');
             email = await getEmailFromUsername(emailOrUsername);
+        } else {
+            console.log('✅ Input is valid email format');
         }
+
+        console.log('🔐 Setting persistence and signing in...');
 
         // Set persistence
         const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
         await setPersistence(auth, persistence);
+        console.log('✅ Persistence set:', rememberMe ? 'Local' : 'Session');
 
         // Sign in
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        console.log('✅ Login successful:', userCredential.user.uid);
         return userCredential.user;
+
     } catch (error) {
-        console.error("Login error:", error);
-        throw error;
+        console.error("❌ Login error:", error);
+        console.error("❌ Error code:", error.code);
+        console.error("❌ Error message:", error.message);
+
+        // Provide user-friendly error messages
+        if (error.code === 'auth/invalid-credential') {
+            throw new Error("Invalid email/username or password. Please check your credentials and try again.");
+        } else if (error.code === 'auth/user-not-found') {
+            throw new Error("No account found with this email/username. Please check your credentials or register for a new account.");
+        } else if (error.code === 'auth/wrong-password') {
+            throw new Error("Incorrect password. Please try again or reset your password.");
+        } else if (error.code === 'auth/too-many-requests') {
+            throw new Error("Too many failed login attempts. Please try again later or reset your password.");
+        } else {
+            throw new Error(error.message || "Login failed. Please try again.");
+        }
     }
 }
 
 // Reset password (supports email or username)
 export async function resetPassword(emailOrUsername) {
+    console.log('🚀 Starting password reset for:', emailOrUsername);
+
     let email = emailOrUsername;
 
     try {
         // Check if input is email or username
         if (!isValidEmail(emailOrUsername)) {
+            console.log('🔍 Input appears to be username, looking up email...');
             email = await getEmailFromUsername(emailOrUsername);
         }
 
         await sendPasswordResetEmail(auth, email);
+        console.log('✅ Password reset email sent to:', email);
         return true;
     } catch (error) {
-        console.error("Password reset error:", error);
-        throw error;
+        console.error("❌ Password reset error:", error);
+        console.error("❌ Error code:", error.code);
+
+        if (error.code === 'auth/user-not-found') {
+            throw new Error("No account found with this email/username.");
+        } else {
+            throw error;
+        }
     }
 }
 
@@ -190,16 +241,40 @@ export async function getCurrentUserProfile() {
     if (!auth.currentUser) return null;
 
     try {
+        console.log('🔍 Getting current user profile...');
         const docRef = doc(db, "users", auth.currentUser.uid);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
+            console.log('✅ User profile found');
             return docSnap.data();
         } else {
+            console.log('⚠️ No user profile found');
             return null;
         }
     } catch (error) {
-        console.error("Error getting user profile:", error);
+        console.error("❌ Error getting user profile:", error);
         return null;
+    }
+}
+
+// Get user's friends list (for real-time posts)
+export async function getUserFriends(userId) {
+    try {
+        console.log('🔍 Getting friends list for user:', userId);
+        const docRef = doc(db, "users", userId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const friends = docSnap.data().friends || [];
+            console.log('✅ Found friends:', friends.length);
+            return friends;
+        } else {
+            console.log('⚠️ User document not found');
+            return [];
+        }
+    } catch (error) {
+        console.error("❌ Error getting user friends:", error);
+        return [];
     }
 }

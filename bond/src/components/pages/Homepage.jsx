@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from '../services/firebase';
+import { auth, db } from '../services/firebase';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { getFeedPosts, togglePostLike } from '../services/postUtils';
-import { getCurrentUserProfile } from '../services/authUtils';
+import { getCurrentUserProfile, getUserFriends } from '../services/authUtils';
 import PostModal from '../modals/PostModal';
 import './HomePage.css';
 
@@ -13,6 +14,7 @@ const HomePage = () => {
     const [initialLoad, setInitialLoad] = useState(true);
     const [userProfile, setUserProfile] = useState(null);
     const [showPostModal, setShowPostModal] = useState(false);
+    const [realtimeListeners, setRealtimeListeners] = useState([]);
 
     // Check if modal should open (from URL params or custom event)
     useEffect(() => {
@@ -35,7 +37,7 @@ const HomePage = () => {
         };
     }, []);
 
-    // Load user profile and posts
+    // Load user profile and set up real-time posts
     useEffect(() => {
         const loadData = async () => {
             if (user) {
@@ -46,28 +48,117 @@ const HomePage = () => {
 
                 try {
                     await loadUserProfile();
-                    await loadPosts();
+                    await setupRealtimePosts();
                 } finally {
                     clearTimeout(loadingTimeout);
                 }
             }
         };
         loadData();
+
+        // Cleanup listeners when component unmounts or user changes
+        return () => {
+            cleanupRealtimeListeners();
+        };
     }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const loadUserProfile = async () => {
-        try {
-            const profile = await getCurrentUserProfile();
-            setUserProfile(profile);
-        } catch (error) {
-            console.error('Error loading user profile:', error);
-        }
+    const cleanupRealtimeListeners = () => {
+        realtimeListeners.forEach(unsubscribe => {
+            if (typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
+        });
+        setRealtimeListeners([]);
     };
 
-    const loadPosts = async () => {
+    const setupRealtimePosts = async () => {
         if (!user) return;
 
         try {
+            console.log('🔄 Setting up real-time posts listener...');
+
+            // First, get user's friends to know which posts to listen to
+            const friends = await getUserFriends(user.uid);
+            const allowedUserIds = [user.uid, ...friends]; // Include user's own posts
+
+            if (allowedUserIds.length === 0) {
+                setPosts([]);
+                return;
+            }
+
+            // Set up real-time listener for posts
+            const postsQuery = query(
+                collection(db, "posts"),
+                where("authorId", "in", allowedUserIds.slice(0, 10)), // Firestore limit of 10 for 'in' queries
+                where("visibility", "in", ["friends", "public"]),
+                orderBy("createdAt", "desc"),
+                limit(20)
+            );
+
+            const unsubscribe = onSnapshot(
+                postsQuery,
+                (querySnapshot) => {
+                    console.log('🔄 Real-time posts update received');
+
+                    const updatedPosts = [];
+                    querySnapshot.forEach((doc) => {
+                        const postData = doc.data();
+
+                        // Use cached author info or create default
+                        let authorInfo = {
+                            id: postData.authorId,
+                            username: 'Unknown',
+                            displayName: 'Unknown User',
+                            profilePicture: null
+                        };
+
+                        // Try to get better author info from existing posts
+                        const existingPost = posts.find(p => p.authorId === postData.authorId);
+                        if (existingPost && existingPost.author) {
+                            authorInfo = existingPost.author;
+                        }
+
+                        updatedPosts.push({
+                            id: doc.id,
+                            ...postData,
+                            author: authorInfo
+                        });
+                    });
+
+                    // Sort by creation date (newest first)
+                    updatedPosts.sort((a, b) => {
+                        const aTime = a.createdAt?.toDate?.() || new Date(a.createdAt);
+                        const bTime = b.createdAt?.toDate?.() || new Date(b.createdAt);
+                        return bTime - aTime;
+                    });
+
+                    console.log('🔄 Updated posts:', updatedPosts.length);
+                    setPosts(updatedPosts);
+                    setLoading(false);
+                    setInitialLoad(false);
+                },
+                (error) => {
+                    console.error('❌ Real-time posts listener error:', error);
+                    // Fallback to regular loading
+                    loadPostsFallback();
+                }
+            );
+
+            setRealtimeListeners([unsubscribe]);
+
+        } catch (error) {
+            console.error('Error setting up real-time posts:', error);
+            // Fallback to regular loading
+            loadPostsFallback();
+        }
+    };
+
+    // Fallback to regular post loading if real-time fails
+    const loadPostsFallback = async () => {
+        if (!user) return;
+
+        try {
+            console.log('📄 Loading posts (fallback mode)...');
             if (initialLoad) {
                 setLoading(true);
                 setInitialLoad(false);
@@ -81,17 +172,34 @@ const HomePage = () => {
         }
     };
 
+    const loadUserProfile = async () => {
+        try {
+            const profile = await getCurrentUserProfile();
+            setUserProfile(profile);
+        } catch (error) {
+            console.error('Error loading user profile:', error);
+        }
+    };
+
     const handleLike = async (postId) => {
         try {
-            await togglePostLike(postId);
-            // Update the local post state
+            console.log('🔄 Handling like for post:', postId);
+
+            // Optimistic update - update UI immediately for better UX
             setPosts(prevPosts =>
                 prevPosts.map(post => {
                     if (post.id === postId) {
-                        const isLiked = post.likes?.includes(user.uid);
-                        const newLikes = isLiked
+                        const isCurrentlyLiked = post.likes?.includes(user.uid);
+                        const newLikes = isCurrentlyLiked
                             ? post.likes.filter(id => id !== user.uid)
                             : [...(post.likes || []), user.uid];
+
+                        console.log('🔄 Optimistic update:', {
+                            postId,
+                            wasLiked: isCurrentlyLiked,
+                            willBeLiked: !isCurrentlyLiked,
+                            newLikeCount: newLikes.length
+                        });
 
                         return {
                             ...post,
@@ -102,14 +210,25 @@ const HomePage = () => {
                     return post;
                 })
             );
+
+            // Update in Firebase (real-time listener will handle the actual update)
+            await togglePostLike(postId);
+            console.log('✅ Like update sent to Firebase');
+
         } catch (error) {
-            console.error('Error liking post:', error);
+            console.error('❌ Error liking post:', error);
+
+            // The real-time listener should automatically revert to the correct state
+            // But we can add a manual refresh as backup
+            console.log('🔄 Real-time listener will handle state correction');
+
+            alert('Failed to update like. Please try again.');
         }
     };
 
     const handlePostCreated = async () => {
-        // Reload posts when a new post is created
-        await loadPosts();
+        // Real-time listener will automatically pick up new posts
+        console.log('✅ New post created - real-time listener will update feed');
     };
 
     const formatTimeAgo = (timestamp) => {
@@ -201,12 +320,23 @@ const HomePage = () => {
             <div className="feed">
                 <div className="feed-header">
                     <h2>Recent Posts</h2>
-                    <select className="feed-filter" onChange={(e) => {
-                        loadPosts();
-                    }}>
-                        <option value="recent">Recent</option>
-                        <option value="friends">Friends Only</option>
-                    </select>
+                    <div className="feed-status">
+                        <span style={{
+                            fontSize: '0.8rem',
+                            color: realtimeListeners.length > 0 ? '#48bb78' : '#718096',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}>
+                            <span style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: realtimeListeners.length > 0 ? '#48bb78' : '#718096'
+                            }}></span>
+                            {realtimeListeners.length > 0 ? 'Live Updates' : 'Static Feed'}
+                        </span>
+                    </div>
                 </div>
 
                 {/* Posts */}
