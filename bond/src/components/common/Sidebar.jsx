@@ -1,12 +1,21 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 
 const Sidebar = () => {
     const location = useLocation();
+    const navigate = useNavigate();
 
     const isActive = (path) => {
         return location.pathname === path;
+    };
+
+    const handleNewPost = () => {
+        if (location.pathname === '/') {
+            window.dispatchEvent(new CustomEvent('openPostModal'));
+        } else {
+            navigate('/?newpost=true');
+        }
     };
 
     return (
@@ -53,9 +62,9 @@ const Sidebar = () => {
                     </li>
                 </ul>
 
-                {/* Secondary Actions */}
+                {/* New Post Button */}
                 <div className="sidebar-actions">
-                    <button className="action-btn primary">
+                    <button className="action-btn primary" onClick={handleNewPost}>
                         <svg className="action-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <line x1="12" y1="5" x2="12" y2="19"></line>
                             <line x1="5" y1="12" x2="19" y2="12"></line>

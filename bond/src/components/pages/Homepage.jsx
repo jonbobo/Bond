@@ -1,28 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../services/firebase';
-import { createPost, getFeedPosts, togglePostLike } from '../services/postUtils';
+import { getFeedPosts, togglePostLike } from '../services/postUtils';
 import { getCurrentUserProfile } from '../services/authUtils';
+import PostModal from '../modals/PostModal';
 import './HomePage.css';
 
 const HomePage = () => {
     const [user] = useAuthState(auth);
-    const [postContent, setPostContent] = useState('');
     const [posts, setPosts] = useState([]);
-    const [loading, setLoading] = useState(false); // Change from true to false
+    const [loading, setLoading] = useState(false);
     const [initialLoad, setInitialLoad] = useState(true);
     const [userProfile, setUserProfile] = useState(null);
-    const [submitting, setSubmitting] = useState(false);
+    const [showPostModal, setShowPostModal] = useState(false);
+
+    // Check if modal should open (from URL params or custom event)
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('newpost') === 'true') {
+            setShowPostModal(true);
+            // Clean up URL without causing page reload
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        // Listen for custom event from sidebar
+        const handleOpenPostModal = () => {
+            setShowPostModal(true);
+        };
+
+        window.addEventListener('openPostModal', handleOpenPostModal);
+
+        return () => {
+            window.removeEventListener('openPostModal', handleOpenPostModal);
+        };
+    }, []);
 
     // Load user profile and posts
     useEffect(() => {
         const loadData = async () => {
             if (user) {
-                // Set a timeout to avoid long loading states
                 const loadingTimeout = setTimeout(() => {
                     setLoading(false);
                     setInitialLoad(false);
-                }, 2000); // Max 2 seconds of loading
+                }, 2000);
 
                 try {
                     await loadUserProfile();
@@ -61,23 +81,6 @@ const HomePage = () => {
         }
     };
 
-    const handlePostSubmit = async () => {
-        if (!postContent.trim() || submitting) return;
-
-        try {
-            setSubmitting(true);
-            await createPost(postContent, 'friends');
-            setPostContent('');
-            // Reload posts to show the new one
-            await loadPosts();
-        } catch (error) {
-            console.error('Error creating post:', error);
-            alert('Failed to create post. Please try again.');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
     const handleLike = async (postId) => {
         try {
             await togglePostLike(postId);
@@ -104,6 +107,11 @@ const HomePage = () => {
         }
     };
 
+    const handlePostCreated = async () => {
+        // Reload posts when a new post is created
+        await loadPosts();
+    };
+
     const formatTimeAgo = (timestamp) => {
         if (!timestamp) return 'Just now';
 
@@ -122,6 +130,13 @@ const HomePage = () => {
         return displayName.charAt(0).toUpperCase();
     };
 
+    const getMyDisplayName = () => {
+        if (userProfile?.displayName) return userProfile.displayName;
+        if (userProfile?.username) return userProfile.username;
+        if (user?.email) return user.email.split('@')[0];
+        return 'User';
+    };
+
     // Show skeleton loading only during initial load
     if (loading && initialLoad) {
         return (
@@ -131,36 +146,15 @@ const HomePage = () => {
                     <p className="page-subtitle">Your distraction-free social space</p>
                 </div>
 
-                {/* Post Composer */}
-                <div className="post-composer">
-                    <div className="composer-header">
+                {/* Clickable Post Prompt */}
+                <div className="post-prompt" onClick={() => setShowPostModal(true)}>
+                    <div className="prompt-content">
                         <div className="user-avatar small">
-                            {getAvatarInitials(userProfile?.displayName)}
+                            {getAvatarInitials(getMyDisplayName())}
                         </div>
-                        <textarea
-                            value={postContent}
-                            onChange={(e) => setPostContent(e.target.value)}
-                            placeholder="What's on your mind?"
-                            className="composer-input"
-                            maxLength={500}
-                            rows="1"
-                            onInput={(e) => {
-                                e.target.style.height = 'auto';
-                                e.target.style.height = e.target.scrollHeight + 'px';
-                            }}
-                        />
-                    </div>
-                    <div className="composer-actions">
-                        <span className="character-count">
-                            {postContent.length}/500
-                        </span>
-                        <button
-                            className="composer-btn"
-                            onClick={handlePostSubmit}
-                            disabled={!postContent.trim() || submitting}
-                        >
-                            {submitting ? 'Sharing...' : 'Share'}
-                        </button>
+                        <div className="prompt-text">
+                            What's on your mind?
+                        </div>
                     </div>
                 </div>
 
@@ -191,36 +185,15 @@ const HomePage = () => {
                 <p className="page-subtitle">Your distraction-free social space</p>
             </div>
 
-            {/* Post Creation Area */}
-            <div className="post-composer">
-                <div className="composer-header">
+            {/* Clickable Post Prompt */}
+            <div className="post-prompt" onClick={() => setShowPostModal(true)}>
+                <div className="prompt-content">
                     <div className="user-avatar small">
-                        {getAvatarInitials(userProfile?.displayName)}
+                        {getAvatarInitials(getMyDisplayName())}
                     </div>
-                    <textarea
-                        value={postContent}
-                        onChange={(e) => setPostContent(e.target.value)}
-                        placeholder="What's on your mind?"
-                        className="composer-input"
-                        maxLength={500}
-                        rows="1"
-                        onInput={(e) => {
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
-                        }}
-                    />
-                </div>
-                <div className="composer-actions">
-                    <span className="character-count">
-                        {postContent.length}/500
-                    </span>
-                    <button
-                        className="composer-btn"
-                        onClick={handlePostSubmit}
-                        disabled={!postContent.trim() || submitting}
-                    >
-                        {submitting ? 'Sharing...' : 'Share'}
-                    </button>
+                    <div className="prompt-text">
+                        What's on your mind?
+                    </div>
                 </div>
             </div>
 
@@ -229,7 +202,6 @@ const HomePage = () => {
                 <div className="feed-header">
                     <h2>Recent Posts</h2>
                     <select className="feed-filter" onChange={(e) => {
-                        // You can implement different filtering logic here
                         loadPosts();
                     }}>
                         <option value="recent">Recent</option>
@@ -287,6 +259,13 @@ const HomePage = () => {
                     </div>
                 )}
             </div>
+
+            {/* Post Modal */}
+            <PostModal
+                isOpen={showPostModal}
+                onClose={() => setShowPostModal(false)}
+                onPostCreated={handlePostCreated}
+            />
         </div>
     );
 };
