@@ -4,6 +4,9 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './components/services/firebase';
 import LoginForm from './components/auth/LoginForm';
 
+// Context Providers
+import { ChatProvider } from './components/contexts/ChatContext';
+
 // Layout Components
 import Header from './components/common/Header';
 import Sidebar from './components/common/Sidebar';
@@ -51,20 +54,22 @@ const PublicRoute = ({ children }) => {
     return user ? <Navigate to="/" /> : children;
 };
 
-// Main Layout Component
+// Main Layout Component - Now wrapped with ChatProvider
 const MainLayout = ({ children }) => {
     return (
-        <div className="app-layout">
-            <Header />
-            <div className="app-content">
-                <Sidebar />
-                <main className="main-content">
-                    {children}
-                </main>
-                <ContactsSidebar />
+        <ChatProvider>
+            <div className="app-layout">
+                <Header />
+                <div className="app-content">
+                    <Sidebar />
+                    <main className="main-content">
+                        {children}
+                    </main>
+                    <ContactsSidebar />
+                </div>
+                <ChatManager />
             </div>
-            <ChatManager />
-        </div>
+        </ChatProvider>
     );
 };
 
@@ -83,7 +88,7 @@ function App() {
                         }
                     />
 
-                    {/* Protected Routes */}
+                    {/* Protected Routes - ChatProvider now wraps the entire MainLayout */}
                     <Route
                         path="/"
                         element={
