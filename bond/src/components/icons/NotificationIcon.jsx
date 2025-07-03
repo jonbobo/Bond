@@ -1,12 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { useNavigate } from 'react-router-dom'; // Add this import
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import './NotificationIcon.css';
 
 const NotificationIcon = () => {
     const [user] = useAuthState(auth);
+    const navigate = useNavigate(); // Add this hook
     const [notificationCount, setNotificationCount] = useState(0);
     const [showDropdown, setShowDropdown] = useState(false);
     const [friendRequests, setFriendRequests] = useState([]);
@@ -125,7 +126,7 @@ const NotificationIcon = () => {
                                         className="view-all-btn"
                                         onClick={() => {
                                             setShowDropdown(false);
-                                            window.location.href = '/connections';
+                                            navigate('/connections?tab=requests'); // Changed from window.location.href
                                         }}
                                     >
                                         View All Requests

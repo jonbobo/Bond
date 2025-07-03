@@ -1,5 +1,4 @@
 // File: src/components/pages/HomePage.jsx
-// Update this existing file
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../services/firebase';
@@ -13,7 +12,6 @@ const HomePage = () => {
     const [user] = useAuthState(auth);
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [initialLoad, setInitialLoad] = useState(true);
     const [userProfile, setUserProfile] = useState(null);
     const [showPostModal, setShowPostModal] = useState(false);
     const [realtimeListeners, setRealtimeListeners] = useState([]);
@@ -43,16 +41,13 @@ const HomePage = () => {
     useEffect(() => {
         const loadData = async () => {
             if (user) {
-                const loadingTimeout = setTimeout(() => {
-                    setLoading(false);
-                    setInitialLoad(false);
-                }, 2000);
-
+                // Start loading immediately - no artificial delay
+                setLoading(true);
                 try {
                     await loadUserProfile();
                     await setupRealtimePosts();
                 } finally {
-                    clearTimeout(loadingTimeout);
+                    setLoading(false);
                 }
             }
         };
@@ -159,8 +154,6 @@ const HomePage = () => {
 
                     console.log('🔄 Updated posts with authors:', updatedPosts.length);
                     setPosts(updatedPosts);
-                    setLoading(false);
-                    setInitialLoad(false);
                 },
                 (error) => {
                     console.error('❌ Real-time posts listener error:', error);
@@ -184,16 +177,10 @@ const HomePage = () => {
 
         try {
             console.log('📄 Loading posts (fallback mode)...');
-            if (initialLoad) {
-                setLoading(true);
-                setInitialLoad(false);
-            }
             const feedPosts = await getFeedPosts(user.uid);
             setPosts(feedPosts);
         } catch (error) {
             console.error('Error loading posts:', error);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -281,42 +268,16 @@ const HomePage = () => {
         return 'User';
     };
 
-    // Show skeleton loading only during initial load
-    if (loading && initialLoad) {
+    // Show minimal loading only for actual data loading
+    if (loading) {
         return (
             <div className="homepage">
                 <div className="page-header">
                     <h1 className="page-title">Welcome to Bond</h1>
                     <p className="page-subtitle">Your distraction-free social space</p>
                 </div>
-
-                {/* Clickable Post Prompt */}
-                <div className="post-prompt" onClick={() => setShowPostModal(true)}>
-                    <div className="prompt-content">
-                        <div className="user-avatar small">
-                            {getAvatarInitials(getMyDisplayName())}
-                        </div>
-                        <div className="prompt-text">
-                            What's on your mind?
-                        </div>
-                    </div>
-                </div>
-
-                {/* Skeleton Loader */}
-                <div className="skeleton-loader">
-                    {[1, 2].map(i => (
-                        <div key={i} className="skeleton-post">
-                            <div className="skeleton-header">
-                                <div className="skeleton-avatar"></div>
-                                <div>
-                                    <div className="skeleton-text skeleton-name"></div>
-                                    <div className="skeleton-text skeleton-time"></div>
-                                </div>
-                            </div>
-                            <div className="skeleton-text skeleton-content"></div>
-                            <div className="skeleton-text skeleton-content short"></div>
-                        </div>
-                    ))}
+                <div className="loading-message">
+                    <p>Loading your feed...</p>
                 </div>
             </div>
         );

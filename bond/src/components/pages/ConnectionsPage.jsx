@@ -15,38 +15,63 @@ import {
 } from '../services/connectionUtils';
 import './ConnectionsPage.css';
 
+// Simple in-memory cache for instant loading
+const dataCache = {
+    friends: [],
+    requests: [],
+    suggestions: [],
+    lastUpdated: null,
+    userId: null
+};
+
 const ConnectionsPage = () => {
     const [user] = useAuthState(auth);
-    const [activeTab, setActiveTab] = useState('friends');
-    const [friends, setFriends] = useState([]);
-    const [requests, setRequests] = useState([]);
-    const [suggestions, setSuggestions] = useState([]);
+
+    // Get initial tab from URL parameter
+    const getInitialTab = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        return ['friends', 'requests', 'suggestions'].includes(tabParam) ? tabParam : 'friends';
+    };
+
+    const [activeTab, setActiveTab] = useState(getInitialTab);
+    const [friends, setFriends] = useState(dataCache.userId === user?.uid ? dataCache.friends : []);
+    const [requests, setRequests] = useState(dataCache.userId === user?.uid ? dataCache.requests : []);
+    const [suggestions, setSuggestions] = useState(dataCache.userId === user?.uid ? dataCache.suggestions : []);
     const [searchResults, setSearchResults] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [initialLoad, setInitialLoad] = useState(true);
     const [actionLoading, setActionLoading] = useState({});
     const [userState, setUserState] = useState({});
+
+    // Handle URL parameter changes
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        if (tabParam && ['friends', 'requests', 'suggestions'].includes(tabParam)) {
+            setActiveTab(tabParam);
+        }
+    }, []);
 
     useEffect(() => {
         const loadData = async () => {
             if (user) {
-                const loadingTimeout = setTimeout(() => {
-                    setLoading(false);
-                    setInitialLoad(false);
-                }, 2000);
-
-                try {
-                    await loadAllData();
-                } finally {
-                    clearTimeout(loadingTimeout);
+                // If we have fresh cached data for this user, use it immediately
+                if (dataCache.userId === user.uid && dataCache.lastUpdated &&
+                    (Date.now() - dataCache.lastUpdated) < 30000) { // 30 seconds cache
+                    console.log('📦 Using cached data');
+                    setFriends(dataCache.friends);
+                    setRequests(dataCache.requests);
+                    setSuggestions(dataCache.suggestions);
                 }
+
+                // Always load fresh data in background
+                await loadAllData();
             }
         };
         loadData();
     }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Real-time listener for user document changes (friend requests, sent requests, friends)
+    // Real-time listener for user document changes
     useEffect(() => {
         if (!user) {
             setUserState({});
@@ -124,11 +149,6 @@ const ConnectionsPage = () => {
         if (!user) return;
 
         try {
-            if (initialLoad) {
-                setLoading(true);
-                setInitialLoad(false);
-            }
-
             console.log('📊 Loading connection data...');
 
             const [friendsData, requestsData, suggestionsData] = await Promise.all([
@@ -141,7 +161,14 @@ const ConnectionsPage = () => {
             setRequests(requestsData);
             setSuggestions(suggestionsData);
 
-            console.log('📊 Data loaded:', {
+            // Update cache
+            dataCache.friends = friendsData;
+            dataCache.requests = requestsData;
+            dataCache.suggestions = suggestionsData;
+            dataCache.lastUpdated = Date.now();
+            dataCache.userId = user.uid;
+
+            console.log('📊 Data loaded and cached:', {
                 friends: friendsData.length,
                 requests: requestsData.length,
                 suggestions: suggestionsData.length
@@ -149,8 +176,6 @@ const ConnectionsPage = () => {
 
         } catch (error) {
             console.error('Error loading connection data:', error);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -176,7 +201,6 @@ const ConnectionsPage = () => {
             setUserState(prev => ({ ...prev, [requesterId]: 'friend' }));
 
             console.log('✅ Friend request accepted successfully');
-            // Real-time listener will handle the data refresh
 
         } catch (error) {
             console.error('Error accepting friend request:', error);
@@ -201,7 +225,6 @@ const ConnectionsPage = () => {
             });
 
             console.log('❌ Friend request declined successfully');
-            // Real-time listener will handle the data refresh
 
         } catch (error) {
             console.error('Error declining friend request:', error);
@@ -222,7 +245,6 @@ const ConnectionsPage = () => {
             setUserState(prev => ({ ...prev, [targetUserId]: 'requestSent' }));
 
             console.log('✅ Friend request sent successfully');
-            // Real-time listener will handle the data refresh
 
         } catch (error) {
             console.error('Error sending friend request:', error);
@@ -256,7 +278,6 @@ const ConnectionsPage = () => {
             });
 
             console.log('✅ Friend request canceled successfully');
-            // Real-time listener will handle the data refresh
 
         } catch (error) {
             console.error('Error canceling friend request:', error);
@@ -292,7 +313,6 @@ const ConnectionsPage = () => {
             setFriends(prev => prev.filter(friend => friend.id !== friendId));
 
             console.log('✅ Friend removed successfully');
-            // Real-time listener will handle the data refresh
 
         } catch (error) {
             console.error('Error removing friend:', error);
@@ -312,13 +332,6 @@ const ConnectionsPage = () => {
 
     const PersonCard = ({ person, type, onAccept, onDecline, onAddFriend, onCancelRequest, onRemove, onMessage }) => {
         const relationshipState = userState[person.id];
-
-        console.log('PersonCard render:', {
-            personId: person.id,
-            type,
-            relationshipState,
-            onCancelRequest: !!onCancelRequest
-        }); // Debug log
 
         return (
             <div className="person-card">
@@ -385,7 +398,6 @@ const ConnectionsPage = () => {
                                 <button
                                     className="action-btn cancel-request"
                                     onClick={() => {
-                                        console.log('Cancel button clicked, calling onCancelRequest'); // Debug log
                                         onCancelRequest && onCancelRequest(person.id);
                                     }}
                                     disabled={actionLoading[person.id]}
@@ -412,65 +424,7 @@ const ConnectionsPage = () => {
         );
     };
 
-    // Skeleton loader component
-    const SkeletonPersonCard = () => (
-        <div className="person-card skeleton-card">
-            <div className="person-info">
-                <div className="person-avatar">
-                    <div className="skeleton-avatar"></div>
-                </div>
-                <div className="person-details">
-                    <div className="skeleton-text skeleton-name"></div>
-                    <div className="skeleton-text skeleton-username"></div>
-                    <div className="skeleton-text skeleton-bio"></div>
-                </div>
-            </div>
-            <div className="person-actions">
-                <div className="skeleton-button"></div>
-                <div className="skeleton-button"></div>
-            </div>
-        </div>
-    );
-
-    if (loading && initialLoad) {
-        return (
-            <div className="connections-page">
-                <div className="page-header">
-                    <h1 className="page-title">Connections</h1>
-                    <div className="search-container">
-                        <input
-                            type="text"
-                            placeholder="Search people..."
-                            className="search-input"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                <div className="connections-tabs">
-                    <button className="tab active">
-                        <div className="skeleton-text skeleton-tab"></div>
-                    </button>
-                    <button className="tab">
-                        <div className="skeleton-text skeleton-tab"></div>
-                    </button>
-                    <button className="tab">
-                        <div className="skeleton-text skeleton-tab"></div>
-                    </button>
-                </div>
-
-                <div className="connections-content">
-                    <div className="skeleton-list">
-                        {[1, 2, 3].map(i => (
-                            <SkeletonPersonCard key={i} />
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
+    // Never show loading screen - always render content immediately
     return (
         <div className="connections-page">
             <div className="page-header">
