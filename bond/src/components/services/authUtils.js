@@ -5,8 +5,10 @@ import {
     setPersistence,
     browserLocalPersistence,
     browserSessionPersistence,
-    updateProfile
+    updateProfile,
+    signOut as firebaseSignOut // Add this import
 } from 'firebase/auth';
+
 import {
     collection,
     query,
@@ -14,7 +16,9 @@ import {
     getDocs,
     doc,
     getDoc,
-    writeBatch  // ✅ Import writeBatch
+    writeBatch,
+    updateDoc, // Add this import
+    serverTimestamp // Add this import
 } from 'firebase/firestore';
 import { auth, db, isValidEmail, isStrongPassword, isValidUsername } from './firebase';
 
@@ -308,5 +312,26 @@ export async function getUserFriends(userId) {
     } catch (error) {
         console.error("❌ Error getting user friends:", error);
         return [];
+    }
+}
+
+export async function signOut() {
+    try {
+        const user = auth.currentUser;
+
+        if (user) {
+            // Update Firestore status BEFORE signing out
+            await updateDoc(doc(db, "users", user.uid), {
+                isOnline: false,
+                lastSeen: serverTimestamp()
+            });
+        }
+
+        // Then sign out from Firebase Auth
+        await firebaseSignOut(auth);
+        console.log('✅ Signed out successfully');
+    } catch (error) {
+        console.error('❌ Sign-out error:', error);
+        throw error;
     }
 }

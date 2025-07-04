@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { registerUser, loginUser, resetPassword } from '../services/authUtils';
+import React, { useState, useEffect } from 'react';
+import { registerUser, loginUser, resetPassword, signOut } from '../services/authUtils';
 import './LoginForm.css';
+import { auth } from '../services/firebase';
 
 const LoginForm = () => {
     const [currentView, setCurrentView] = useState('login'); // 'login', 'register', 'forgot'
@@ -14,6 +15,15 @@ const LoginForm = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+    // Check auth state on component mount
+    useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged(user => {
+            setIsLoggedIn(!!user);
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -32,18 +42,41 @@ const LoginForm = () => {
         try {
             if (currentView === 'login') {
                 await loginUser(formData.emailOrUsername, formData.password, formData.rememberMe);
-                console.log('Login successful!');
+                setMessage('Login successful!');
+                setIsLoggedIn(true);
             } else if (currentView === 'register') {
                 await registerUser(formData.email, formData.password, formData.username, formData.rememberMe);
                 setMessage('Account created successfully! You are now logged in.');
-                console.log('Registration successful!');
+                setIsLoggedIn(true);
             } else if (currentView === 'forgot') {
                 await resetPassword(formData.emailOrUsername);
                 setMessage('Password reset email sent! Check your inbox.');
-                console.log('Password reset email sent');
             }
         } catch (err) {
             console.error('Authentication error:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSignOut = async () => {
+        setLoading(true);
+        try {
+            await signOut();
+            setMessage('You have been signed out');
+            setIsLoggedIn(false);
+            // Reset form data
+            setFormData({
+                emailOrUsername: '',
+                email: '',
+                password: '',
+                username: '',
+                rememberMe: false
+            });
+            // Reset to login view
+            setCurrentView('login');
+        } catch (err) {
             setError(err.message);
         } finally {
             setLoading(false);
@@ -94,125 +127,137 @@ const LoginForm = () => {
                                 'Reset Password'}
                     </h1>
 
-                    {/* Email or Username field for login/forgot */}
-                    {(currentView === 'login' || currentView === 'forgot') && (
-                        <div className="input-box">
-                            <input
-                                type="text"
-                                name="emailOrUsername"
-                                placeholder={currentView === 'forgot' ? "Email or Username" : "Email or Username"}
-                                value={formData.emailOrUsername}
-                                onChange={handleInputChange}
-                                required
-                                disabled={loading}
-                            />
-                            <i className="bx bxs-user"></i>
+                    {/* Show welcome message if logged in */}
+                    {isLoggedIn && (
+                        <div className="welcome-message">
+                            <p>Welcome back! You are already logged in.</p>
                         </div>
                     )}
 
-                    {/* Email field for registration */}
-                    {currentView === 'register' && (
-                        <div className="input-box">
-                            <input
-                                type="email"
-                                name="email"
-                                placeholder="Email"
-                                value={formData.email}
-                                onChange={handleInputChange}
-                                required
-                                disabled={loading}
-                            />
-                            <i className="bx bxs-envelope"></i>
-                        </div>
-                    )}
+                    {/* Only show form fields if not logged in or in forgot password view */}
+                    {(!isLoggedIn || currentView === 'forgot') && (
+                        <>
+                            {/* Email or Username field for login/forgot */}
+                            {(currentView === 'login' || currentView === 'forgot') && (
+                                <div className="input-box">
+                                    <input
+                                        type="text"
+                                        name="emailOrUsername"
+                                        placeholder={currentView === 'forgot' ? "Email or Username" : "Email or Username"}
+                                        value={formData.emailOrUsername}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={loading}
+                                    />
+                                    <i className="bx bxs-user"></i>
+                                </div>
+                            )}
 
-                    {/* Username field for registration */}
-                    {currentView === 'register' && (
-                        <div className="input-box">
-                            <input
-                                type="text"
-                                name="username"
-                                placeholder="Username (3-20 characters)"
-                                value={formData.username}
-                                onChange={handleInputChange}
-                                required
-                                disabled={loading}
-                                pattern="[a-zA-Z0-9_]{3,20}"
-                                title="Username must be 3-20 characters long and contain only letters, numbers, and underscores"
-                            />
-                            <i className="bx bxs-user"></i>
-                        </div>
-                    )}
+                            {/* Email field for registration */}
+                            {currentView === 'register' && (
+                                <div className="input-box">
+                                    <input
+                                        type="email"
+                                        name="email"
+                                        placeholder="Email"
+                                        value={formData.email}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={loading}
+                                    />
+                                    <i className="bx bxs-envelope"></i>
+                                </div>
+                            )}
 
-                    {/* Password field for login/register */}
-                    {(currentView === 'login' || currentView === 'register') && (
-                        <div className="input-box">
-                            <input
-                                type="password"
-                                name="password"
-                                placeholder="Password"
-                                value={formData.password}
-                                onChange={handleInputChange}
-                                required
-                                minLength={currentView === 'register' ? "8" : "1"}
-                                disabled={loading}
-                            />
-                            <i className="bx bxs-lock-alt"></i>
-                        </div>
-                    )}
+                            {/* Username field for registration */}
+                            {currentView === 'register' && (
+                                <div className="input-box">
+                                    <input
+                                        type="text"
+                                        name="username"
+                                        placeholder="Username (3-20 characters)"
+                                        value={formData.username}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={loading}
+                                        pattern="[a-zA-Z0-9_]{3,20}"
+                                        title="Username must be 3-20 characters long and contain only letters, numbers, and underscores"
+                                    />
+                                    <i className="bx bxs-user"></i>
+                                </div>
+                            )}
 
-                    {/* Password strength indicator */}
-                    {currentView === 'register' && formData.password && (
-                        <div className="password-strength">
-                            <div className="strength-bar">
-                                <div
-                                    className="strength-fill"
-                                    style={{
-                                        width: `${(passwordStrength.strength / 3) * 100}%`,
-                                        backgroundColor: passwordStrength.color
-                                    }}
-                                ></div>
-                            </div>
-                            <span style={{ color: passwordStrength.color, fontSize: '12px' }}>
-                                {passwordStrength.text}
-                            </span>
-                        </div>
-                    )}
+                            {/* Password field for login/register */}
+                            {(currentView === 'login' || currentView === 'register') && (
+                                <div className="input-box">
+                                    <input
+                                        type="password"
+                                        name="password"
+                                        placeholder="Password"
+                                        value={formData.password}
+                                        onChange={handleInputChange}
+                                        required
+                                        minLength={currentView === 'register' ? "8" : "1"}
+                                        disabled={loading}
+                                    />
+                                    <i className="bx bxs-lock-alt"></i>
+                                </div>
+                            )}
 
-                    {/* Remember me and forgot password */}
-                    {currentView === 'login' && (
-                        <div className="remember-forgot">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="rememberMe"
-                                    checked={formData.rememberMe}
-                                    onChange={handleInputChange}
-                                /> Remember me
-                            </label>
-                            <button
-                                type="button"
-                                className="link-button"
-                                onClick={() => switchView('forgot')}
-                                disabled={loading}
-                            >
-                                Forgot Password?
-                            </button>
-                        </div>
-                    )}
+                            {/* Password strength indicator */}
+                            {currentView === 'register' && formData.password && (
+                                <div className="password-strength">
+                                    <div className="strength-bar">
+                                        <div
+                                            className="strength-fill"
+                                            style={{
+                                                width: `${(passwordStrength.strength / 3) * 100}%`,
+                                                backgroundColor: passwordStrength.color
+                                            }}
+                                        ></div>
+                                    </div>
+                                    <span style={{ color: passwordStrength.color, fontSize: '12px' }}>
+                                        {passwordStrength.text}
+                                    </span>
+                                </div>
+                            )}
 
-                    {/* Remember me for registration */}
-                    {currentView === 'register' && (
-                        <div className="remember-forgot">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    name="rememberMe"
-                                    checked={formData.rememberMe}
-                                    onChange={handleInputChange}
-                                /> Keep me logged in
-                            </label>
-                        </div>
+                            {/* Remember me and forgot password */}
+                            {currentView === 'login' && (
+                                <div className="remember-forgot">
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            name="rememberMe"
+                                            checked={formData.rememberMe}
+                                            onChange={handleInputChange}
+                                        /> Remember me
+                                    </label>
+                                    <button
+                                        type="button"
+                                        className="link-button"
+                                        onClick={() => switchView('forgot')}
+                                        disabled={loading}
+                                    >
+                                        Forgot Password?
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Remember me for registration */}
+                            {currentView === 'register' && (
+                                <div className="remember-forgot">
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            name="rememberMe"
+                                            checked={formData.rememberMe}
+                                            onChange={handleInputChange}
+                                        /> Keep me logged in
+                                    </label>
+                                </div>
+                            )}
+                        </>
                     )}
 
                     {/* Error message */}
@@ -229,12 +274,24 @@ const LoginForm = () => {
                         </div>
                     )}
 
-                    <button type="submit" disabled={loading} className="btn">
-                        {loading ? 'Loading...' :
-                            currentView === 'login' ? 'Login' :
-                                currentView === 'register' ? 'Create Account' :
-                                    'Send Reset Email'}
-                    </button>
+                    {/* Conditional buttons */}
+                    {!isLoggedIn ? (
+                        <button type="submit" disabled={loading} className="btn">
+                            {loading ? 'Loading...' :
+                                currentView === 'login' ? 'Login' :
+                                    currentView === 'register' ? 'Create Account' :
+                                        'Send Reset Email'}
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={handleSignOut}
+                            disabled={loading}
+                            className="btn btn-logout"
+                        >
+                            {loading ? 'Signing out...' : 'Sign Out'}
+                        </button>
+                    )}
 
                     <div className="register-link">
                         <p>
@@ -245,7 +302,7 @@ const LoginForm = () => {
                                         type="button"
                                         className="link-button"
                                         onClick={() => switchView('register')}
-                                        disabled={loading}
+                                        disabled={loading || isLoggedIn}
                                     >
                                         Register
                                     </button>
