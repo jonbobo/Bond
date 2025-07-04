@@ -1,7 +1,6 @@
-// components/services/chatUtils.js
+// components/services/chatUtils.js - OPTIMIZED VERSION
 import {
     collection,
-    addDoc,
     query,
     orderBy,
     limit,
@@ -12,23 +11,33 @@ import {
     updateDoc,
     serverTimestamp,
     getDocs,
-    setDoc
+    setDoc,
+    writeBatch
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
-// Update user online status
+// ✅ DEBOUNCED online status updates to prevent excessive writes
+let statusUpdateTimeout = null;
 export async function updateOnlineStatus(isOnline) {
     if (!auth.currentUser) return;
 
-    try {
-        const userRef = doc(db, "users", auth.currentUser.uid);
-        await updateDoc(userRef, {
-            isOnline,
-            lastSeen: serverTimestamp()
-        });
-    } catch (error) {
-        console.error("Error updating online status:", error);
+    // ✅ DEBOUNCE: Only update after 5 seconds of no new calls
+    if (statusUpdateTimeout) {
+        clearTimeout(statusUpdateTimeout);
     }
+
+    statusUpdateTimeout = setTimeout(async () => {
+        try {
+            const userRef = doc(db, "users", auth.currentUser.uid);
+            await updateDoc(userRef, {
+                isOnline,
+                lastSeen: serverTimestamp()
+            });
+            console.log('✅ Online status updated (debounced)');
+        } catch (error) {
+            console.error("Error updating online status:", error);
+        }
+    }, 5000); // 5 second debounce
 }
 
 // Create or get existing chat between two users
@@ -95,7 +104,7 @@ export async function createOrGetChat(participantId) {
     }
 }
 
-// Send a message in a chat
+// ✅ OPTIMIZED: Send message with batch write for chat update
 export async function sendMessage(chatId, content, messageType = 'text') {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to send messages");
@@ -108,6 +117,11 @@ export async function sendMessage(chatId, content, messageType = 'text') {
     try {
         console.log('📤 Sending message:', { chatId, content: content.trim(), sender: auth.currentUser.uid });
 
+        // Get current user data for denormalized message
+        const userRef = doc(db, "users", auth.currentUser.uid);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.exists() ? userSnap.data() : {};
+
         const messageData = {
             chatId,
             senderId: auth.currentUser.uid,
@@ -115,16 +129,24 @@ export async function sendMessage(chatId, content, messageType = 'text') {
             type: messageType,
             createdAt: serverTimestamp(),
             edited: false,
-            editedAt: null
+            editedAt: null,
+            // ✅ DENORMALIZED: Include sender info in message
+            sender: {
+                id: auth.currentUser.uid,
+                username: userData.username || 'Unknown',
+                displayName: userData.displayName || 'Unknown User',
+                profilePicture: userData.profilePicture || null
+            }
         };
 
-        // Add message to messages collection
-        console.log('📝 Adding message to Firestore...');
-        const messageRef = await addDoc(collection(db, "messages"), messageData);
-        console.log('✅ Message added with ID:', messageRef.id);
+        // ✅ BATCH WRITE: Message creation and chat update in single transaction
+        const batch = writeBatch(db);
+
+        // Add message
+        const messageRef = doc(collection(db, "messages"));
+        batch.set(messageRef, messageData);
 
         // Update chat's last message info
-        console.log('📝 Updating chat document...');
         const chatRef = doc(db, "chats", chatId);
         const chatSnap = await getDoc(chatRef);
 
@@ -132,15 +154,16 @@ export async function sendMessage(chatId, content, messageType = 'text') {
             const chatData = chatSnap.data();
             const otherParticipant = chatData.participants.find(id => id !== auth.currentUser.uid);
 
-            await updateDoc(chatRef, {
+            batch.update(chatRef, {
                 lastMessage: content.trim(),
                 lastMessageAt: serverTimestamp(),
                 [`unreadCount.${otherParticipant}`]: (chatData.unreadCount?.[otherParticipant] || 0) + 1
             });
-            console.log('✅ Chat document updated');
-        } else {
-            console.error('❌ Chat document not found when updating last message');
         }
+
+        // ✅ COMMIT BATCH - Single write operation
+        await batch.commit();
+        console.log('✅ Message and chat update completed in batch');
 
         return messageRef.id;
     } catch (error) {
@@ -149,7 +172,7 @@ export async function sendMessage(chatId, content, messageType = 'text') {
     }
 }
 
-// Get messages for a chat with real-time updates - COMPLETE FIX
+// ✅ OPTIMIZED: Messages subscription without additional user queries
 export function subscribeToMessages(chatId, callback, limitCount = 50) {
     if (!chatId) {
         console.error('❌ Cannot subscribe to messages: chatId is required');
@@ -158,9 +181,8 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
     }
 
     try {
-        console.log('🔄 Setting up message subscription for chat:', chatId);
+        console.log('🔄 Setting up optimized message subscription for chat:', chatId);
 
-        // Use the correct query that matches your index
         const messagesQuery = query(
             collection(db, "messages"),
             where("chatId", "==", chatId),
@@ -172,7 +194,7 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
 
         const unsubscribe = onSnapshot(
             messagesQuery,
-            async (querySnapshot) => {
+            (querySnapshot) => {
                 console.log('📝 Messages snapshot received:', {
                     empty: querySnapshot.empty,
                     size: querySnapshot.size,
@@ -187,8 +209,8 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
 
                 const messages = [];
 
-                // Process each message document
-                for (const docSnap of querySnapshot.docs) {
+                // ✅ NO ADDITIONAL QUERIES - sender data is denormalized in message
+                querySnapshot.docs.forEach((docSnap) => {
                     const messageData = docSnap.data();
                     console.log('📝 Processing message:', {
                         id: docSnap.id,
@@ -197,36 +219,20 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
                         createdAt: messageData.createdAt
                     });
 
-                    try {
-                        // Get sender information
-                        const senderDoc = await getDoc(doc(db, "users", messageData.senderId));
-                        const senderData = senderDoc.exists() ? senderDoc.data() : null;
+                    // ✅ Use denormalized sender data or fallback
+                    const senderInfo = messageData.sender || {
+                        id: messageData.senderId,
+                        username: 'Unknown',
+                        displayName: 'Unknown User',
+                        profilePicture: null
+                    };
 
-                        messages.push({
-                            id: docSnap.id,
-                            ...messageData,
-                            sender: {
-                                id: messageData.senderId,
-                                username: senderData?.username || 'Unknown',
-                                displayName: senderData?.displayName || 'Unknown User',
-                                profilePicture: senderData?.profilePicture || null
-                            }
-                        });
-                    } catch (senderError) {
-                        console.error('❌ Error getting sender data:', senderError);
-                        // Add message with fallback sender data
-                        messages.push({
-                            id: docSnap.id,
-                            ...messageData,
-                            sender: {
-                                id: messageData.senderId,
-                                username: 'Unknown',
-                                displayName: 'Unknown User',
-                                profilePicture: null
-                            }
-                        });
-                    }
-                }
+                    messages.push({
+                        id: docSnap.id,
+                        ...messageData,
+                        sender: senderInfo
+                    });
+                });
 
                 // Sort by creation time (oldest first for display)
                 messages.sort((a, b) => {
@@ -235,7 +241,7 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
                     return aTime - bTime;
                 });
 
-                console.log('✅ Processed messages for display:', {
+                console.log('✅ Processed messages without additional queries:', {
                     count: messages.length,
                     firstMessage: messages[0]?.content?.substring(0, 30),
                     lastMessage: messages[messages.length - 1]?.content?.substring(0, 30)
@@ -246,7 +252,6 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
             (error) => {
                 console.error("❌ Error in messages listener:", error);
 
-                // Check if it's an index error
                 if (error.code === 'failed-precondition') {
                     console.error("❌ Index missing! Create the index for messages collection:");
                     console.error("Fields: chatId (asc), createdAt (desc)");
@@ -256,7 +261,7 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
             }
         );
 
-        console.log('✅ Message listener set up successfully');
+        console.log('✅ Optimized message listener set up successfully');
         return unsubscribe;
     } catch (error) {
         console.error("❌ Error subscribing to messages:", error);
@@ -264,7 +269,9 @@ export function subscribeToMessages(chatId, callback, limitCount = 50) {
     }
 }
 
-// Get user's chats with real-time updates
+// ✅ OPTIMIZED: User chats subscription with participant data caching
+const participantCache = new Map(); // Simple in-memory cache
+
 export function subscribeToUserChats(userId, callback) {
     try {
         const chatsQuery = query(
@@ -278,26 +285,55 @@ export function subscribeToUserChats(userId, callback) {
             async (querySnapshot) => {
                 const chats = [];
 
-                for (const docSnap of querySnapshot.docs) {
+                // ✅ OPTIMIZED: Batch participant lookups and use caching
+                const participantLookups = new Map();
+
+                querySnapshot.docs.forEach((docSnap) => {
                     const chatData = docSnap.data();
                     const otherParticipantId = chatData.participants.find(id => id !== userId);
 
-                    // Get other participant's information
-                    const participantDoc = await getDoc(doc(db, "users", otherParticipantId));
+                    if (!participantCache.has(otherParticipantId)) {
+                        participantLookups.set(otherParticipantId, null);
+                    }
+                });
+
+                // Batch fetch uncached participants
+                const lookupPromises = Array.from(participantLookups.keys()).map(async (participantId) => {
+                    const participantDoc = await getDoc(doc(db, "users", participantId));
                     const participantData = participantDoc.exists() ? participantDoc.data() : null;
+
+                    // Cache the result
+                    participantCache.set(participantId, participantData);
+                    return { participantId, participantData };
+                });
+
+                await Promise.all(lookupPromises);
+
+                // Build chats with cached participant data
+                querySnapshot.docs.forEach((docSnap) => {
+                    const chatData = docSnap.data();
+                    const otherParticipantId = chatData.participants.find(id => id !== userId);
+                    const participantData = participantCache.get(otherParticipantId);
+
+                    const participantInfo = participantData ? {
+                        id: otherParticipantId,
+                        username: participantData.username || 'Unknown',
+                        displayName: participantData.displayName || 'Unknown User',
+                        profilePicture: participantData.profilePicture || null
+                    } : {
+                        id: otherParticipantId,
+                        username: 'Unknown',
+                        displayName: 'Unknown User',
+                        profilePicture: null
+                    };
 
                     chats.push({
                         id: docSnap.id,
                         ...chatData,
-                        otherParticipant: {
-                            id: otherParticipantId,
-                            username: participantData?.username || 'Unknown',
-                            displayName: participantData?.displayName || 'Unknown User',
-                            profilePicture: participantData?.profilePicture || null
-                        },
+                        otherParticipant: participantInfo,
                         unreadCount: chatData.unreadCount?.[userId] || 0
                     });
-                }
+                });
 
                 callback(chats);
             },
@@ -328,9 +364,20 @@ export async function markChatAsRead(chatId) {
     }
 }
 
-// Get user's friends for contacts sidebar
+// Get user's friends for contacts sidebar (with caching)
+const friendsCache = new Map();
+
 export async function getUserFriendsForChat(userId) {
     try {
+        // Check cache first
+        if (friendsCache.has(userId)) {
+            const cached = friendsCache.get(userId);
+            // Cache for 5 minutes
+            if (Date.now() - cached.timestamp < 5 * 60 * 1000) {
+                return cached.data;
+            }
+        }
+
         const userDoc = await getDoc(doc(db, "users", userId));
         if (!userDoc.exists()) {
             return [];
@@ -357,6 +404,12 @@ export async function getUserFriendsForChat(userId) {
             }
         }
 
+        // Cache the result
+        friendsCache.set(userId, {
+            data: friends,
+            timestamp: Date.now()
+        });
+
         return friends;
     } catch (error) {
         console.error("Error getting friends for chat:", error);
@@ -364,7 +417,7 @@ export async function getUserFriendsForChat(userId) {
     }
 }
 
-// Search for users (anyone can message anyone)
+// Search for users (with result limiting)
 export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     if (!searchTerm || searchTerm.trim().length < 2) {
         return [];
@@ -373,12 +426,15 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     try {
         const searchTermLower = searchTerm.toLowerCase();
 
+        // ✅ OPTIMIZED: Smaller limit to reduce reads
+        const actualLimit = Math.min(limitCount, 5); // Max 5 results
+
         // Search by username
         const usernameQuery = query(
             collection(db, "users"),
             where("username", ">=", searchTermLower),
             where("username", "<=", searchTermLower + '\uf8ff'),
-            limit(limitCount)
+            limit(actualLimit)
         );
 
         // Search by display name
@@ -386,7 +442,7 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
             collection(db, "users"),
             where("displayName", ">=", searchTerm),
             where("displayName", "<=", searchTerm + '\uf8ff'),
-            limit(limitCount)
+            limit(actualLimit)
         );
 
         const [usernameSnapshot, displayNameSnapshot] = await Promise.all([
@@ -399,7 +455,7 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
         // Process username results
         usernameSnapshot.forEach((doc) => {
             const userData = doc.data();
-            if (doc.id !== currentUserId) { // Exclude current user
+            if (doc.id !== currentUserId) {
                 users.set(doc.id, {
                     id: doc.id,
                     username: userData.username,
@@ -415,7 +471,7 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
         // Process display name results
         displayNameSnapshot.forEach((doc) => {
             const userData = doc.data();
-            if (doc.id !== currentUserId && !users.has(doc.id)) { // Exclude current user and duplicates
+            if (doc.id !== currentUserId && !users.has(doc.id)) {
                 users.set(doc.id, {
                     id: doc.id,
                     username: userData.username,
@@ -428,7 +484,7 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
             }
         });
 
-        return Array.from(users.values()).slice(0, limitCount);
+        return Array.from(users.values()).slice(0, actualLimit);
     } catch (error) {
         console.error("Error searching users:", error);
         return [];

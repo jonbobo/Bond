@@ -1,0 +1,263 @@
+.homepage {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: #718096;
+}
+
+/* Post Prompt (Clickable) */
+.post-prompt {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.post-prompt:hover {
+    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.prompt-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.prompt-text {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    background: #f7fafc;
+    color: #718096;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+}
+
+.post-prompt:hover .prompt-text {
+    background: #edf2f7;
+    color: #667eea;
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.user-avatar.small {
+    width: 36px;
+    height: 36px;
+    font-size: 0.9rem;
+}
+
+/* Feed */
+.feed {
+    /* Feed container styles */
+}
+
+.feed-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.feed-header h2 {
+    margin: 0;
+    color: #2d3748;
+    font-size: 1.25rem;
+}
+
+.feed-filter {
+    padding: 6px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    background: white;
+    cursor: pointer;
+}
+
+/* Post Cards */
+.post-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    transition: all 0.2s ease;
+}
+
+.post-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.post-header {
+    margin-bottom: 16px;
+}
+
+.post-author {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.author-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.author-name {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.post-time {
+    font-size: 0.8rem;
+    color: #718096;
+    margin: 0;
+}
+
+.post-content {
+    margin-bottom: 16px;
+}
+
+.post-content p {
+    margin: 0;
+    line-height: 1.6;
+    color: #2d3748;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.post-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #f7fafc;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    color: #718096;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    background-color: #f7fafc;
+    color: #667eea;
+}
+
+.action-btn.like.liked {
+    color: #e53e3e;
+}
+
+.action-btn.like.liked svg {
+    fill: currentColor;
+}
+
+.action-btn.like:hover {
+    color: #e53e3e;
+}
+
+.action-btn span {
+    font-weight: 500;
+}
+
+.action-btn svg {
+    stroke-width: 1.5;
+}
+
+.feed-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #718096;
+    background: #f7fafc;
+    border-radius: 12px;
+    margin-top: 20px;
+}
+
+.feed-empty p {
+    margin: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .homepage {
+        max-width: 100%;
+        padding: 0 16px;
+    }
+
+    .prompt-content {
+        gap: 8px;
+    }
+
+    .user-avatar.small {
+        width: 32px;
+        height: 32px;
+        font-size: 0.8rem;
+    }
+
+    .avatar {
+        width: 40px;
+        height: 40px;
+        font-size: 1rem;
+    }
+
+    .post-card {
+        padding: 16px;
+    }
+
+    .feed-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}

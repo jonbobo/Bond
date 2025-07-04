@@ -1,8 +1,7 @@
-// File: src/components/pages/HomePage.jsx - OPTIMIZED VERSION
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../services/firebase';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getFeedPosts, togglePostLike } from '../services/postUtils';
 import { getCurrentUserProfile, getUserFriends } from '../services/authUtils';
 import PostModal from '../modals/PostModal';
@@ -58,6 +57,15 @@ const HomePage = () => {
         };
     }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const loadUserProfile = async () => {
+        try {
+            const profile = await getCurrentUserProfile();
+            setUserProfile(profile);
+        } catch (error) {
+            console.error('Error loading user profile:', error);
+        }
+    };
+
     const cleanupRealtimeListeners = () => {
         realtimeListeners.forEach(unsubscribe => {
             if (typeof unsubscribe === 'function') {
@@ -67,26 +75,25 @@ const HomePage = () => {
         setRealtimeListeners([]);
     };
 
-    // ✅ OPTIMIZED: Real-time posts without additional user queries
     const setupRealtimePosts = async () => {
         if (!user) return;
 
         try {
-            console.log('🔄 Setting up optimized real-time posts listener...');
+            console.log('🔄 Setting up real-time posts listener...');
 
-            // Get user's friends to know which posts to listen to
+            // First, get user's friends to know which posts to listen to
             const friends = await getUserFriends(user.uid);
-            const allowedUserIds = [user.uid, ...friends];
+            const allowedUserIds = [user.uid, ...friends]; // Include user's own posts
 
             if (allowedUserIds.length === 0) {
                 setPosts([]);
                 return;
             }
 
-            // ✅ OPTIMIZED: Real-time listener WITHOUT additional queries
+            // Set up real-time listener for posts
             const postsQuery = query(
                 collection(db, "posts"),
-                where("authorId", "in", allowedUserIds.slice(0, 10)), // Firestore limit
+                where("authorId", "in", allowedUserIds.slice(0, 10)), // Firestore limit of 10 for 'in' queries
                 where("visibility", "in", ["friends", "public"]),
                 orderBy("createdAt", "desc"),
                 limit(20)
@@ -94,30 +101,56 @@ const HomePage = () => {
 
             const unsubscribe = onSnapshot(
                 postsQuery,
-                (querySnapshot) => {
+                async (querySnapshot) => {
                     console.log('🔄 Real-time posts update received');
 
                     const updatedPosts = [];
 
-                    // ✅ NO ADDITIONAL QUERIES - author data is already in the post
-                    querySnapshot.forEach((docSnap) => {
+                    // Process each post and get author information
+                    for (const docSnap of querySnapshot.docs) {
                         const postData = docSnap.data();
 
-                        // ✅ Author data should already be included in post
-                        // If not, we have fallback data
-                        const authorInfo = postData.author || {
-                            id: postData.authorId,
-                            username: 'unknown',
-                            displayName: 'Unknown User',
-                            profilePicture: null
-                        };
+                        try {
+                            // Get author information from Firestore
+                            const authorDoc = await getDoc(doc(db, "users", postData.authorId));
+                            let authorInfo = {
+                                id: postData.authorId,
+                                username: 'Unknown',
+                                displayName: 'Unknown User',
+                                profilePicture: null
+                            };
 
-                        updatedPosts.push({
-                            id: docSnap.id,
-                            ...postData,
-                            author: authorInfo
-                        });
-                    });
+                            if (authorDoc.exists()) {
+                                const authorData = authorDoc.data();
+                                authorInfo = {
+                                    id: postData.authorId,
+                                    username: authorData.username || 'unknown',
+                                    displayName: authorData.displayName || authorData.username || 'Unknown User',
+                                    profilePicture: authorData.profilePicture || null
+                                };
+                            }
+
+                            updatedPosts.push({
+                                id: docSnap.id,
+                                ...postData,
+                                author: authorInfo
+                            });
+
+                        } catch (error) {
+                            console.error('Error getting author info for post:', docSnap.id, error);
+                            // Add post with default author info
+                            updatedPosts.push({
+                                id: docSnap.id,
+                                ...postData,
+                                author: {
+                                    id: postData.authorId,
+                                    username: 'unknown',
+                                    displayName: 'Unknown User',
+                                    profilePicture: null
+                                }
+                            });
+                        }
+                    }
 
                     // Sort by creation date (newest first)
                     updatedPosts.sort((a, b) => {
@@ -126,7 +159,7 @@ const HomePage = () => {
                         return bTime - aTime;
                     });
 
-                    console.log('✅ Updated posts (no additional queries):', updatedPosts.length);
+                    console.log('🔄 Updated posts with authors:', updatedPosts.length);
                     setPosts(updatedPosts);
                 },
                 (error) => {
@@ -158,30 +191,15 @@ const HomePage = () => {
         }
     };
 
-    const loadUserProfile = async () => {
-        try {
-            const profile = await getCurrentUserProfile();
-            setUserProfile(profile);
-        } catch (error) {
-            console.error('Error loading user profile:', error);
-        }
-    };
-
-    // ✅ OPTIMIZED: Better optimistic updates
     const handleLike = async (postId) => {
         try {
             console.log('🔄 Handling like for post:', postId);
 
-            // Find the current post
-            const currentPost = posts.find(p => p.id === postId);
-            if (!currentPost) return;
-
-            const isCurrentlyLiked = currentPost.likes?.includes(user.uid);
-
-            // ✅ OPTIMISTIC UPDATE with better state management
+            // Optimistic update - update UI immediately for better UX
             setPosts(prevPosts =>
                 prevPosts.map(post => {
                     if (post.id === postId) {
+                        const isCurrentlyLiked = post.likes?.includes(user.uid);
                         const newLikes = isCurrentlyLiked
                             ? post.likes.filter(id => id !== user.uid)
                             : [...(post.likes || []), user.uid];
@@ -196,24 +214,12 @@ const HomePage = () => {
                 })
             );
 
-            // Update in Firebase
+            // Update in Firebase (real-time listener will handle the actual update)
             await togglePostLike(postId);
-            console.log('✅ Like update completed');
+            console.log('✅ Like update sent to Firebase');
 
         } catch (error) {
             console.error('❌ Error liking post:', error);
-
-            // ✅ REVERT optimistic update on error
-            setPosts(prevPosts =>
-                prevPosts.map(post => {
-                    if (post.id === postId) {
-                        const currentPost = posts.find(p => p.id === postId);
-                        return currentPost; // Revert to original state
-                    }
-                    return post;
-                })
-            );
-
             alert('Failed to update like. Please try again.');
         }
     };
@@ -300,7 +306,7 @@ const HomePage = () => {
                                 borderRadius: '50%',
                                 backgroundColor: realtimeListeners.length > 0 ? '#48bb78' : '#718096'
                             }}></span>
-                            {realtimeListeners.length > 0 ? 'Optimized Live Updates' : 'Static Feed'}
+                            {realtimeListeners.length > 0 ? 'Live Updates' : 'Static Feed'}
                         </span>
                     </div>
                 </div>
@@ -312,11 +318,11 @@ const HomePage = () => {
                             <div className="post-header">
                                 <div className="post-author">
                                     <div className="avatar">
-                                        {getAvatarInitials(post.author?.displayName)}
+                                        {getAvatarInitials(post.author.displayName)}
                                     </div>
                                     <div className="author-info">
                                         <div className="author-name">
-                                            {post.author?.displayName || 'Unknown User'}
+                                            {post.author.displayName}
                                         </div>
                                         <div className="post-time">
                                             {formatTimeAgo(post.createdAt)}
