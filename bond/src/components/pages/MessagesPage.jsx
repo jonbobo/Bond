@@ -101,15 +101,19 @@ const MessagesPage = () => {
         console.log('📱 Chat selected in MessagesPage:', chatId);
         setSelectedChatId(chatId);
 
-        // Dispatch event to sync with floating chat if needed
-        const selectedChat = chats.find(chat => chat.id === chatId);
-        if (selectedChat && selectedChat.otherParticipant) {
-            window.dispatchEvent(new CustomEvent('openFloatingChat', {
-                detail: { friend: selectedChat.otherParticipant }
-            }));
-        }
+
     };
 
+    /*************  ✨ Windsurf Command ⭐  *************/
+    /**
+     * Handles sending a message for the currently selected chat.
+     * Prevents default form submission, checks if a message is being sent,
+     * and if a chat is selected. If valid, sends the message and clears
+     * the input field. If an error occurs, alerts the user to try again.
+     *
+     * @param {Event} e The event object from the form submission.
+     */
+    /*******  bd82e8ef-548e-4721-a1fb-a60064d35324  *******/
     const handleSendMessage = async (e) => {
         e.preventDefault();
 
@@ -147,10 +151,6 @@ const MessagesPage = () => {
             setSearchTerm('');
             setSearchResults([]);
 
-            // Also dispatch event to open in floating chat
-            window.dispatchEvent(new CustomEvent('openFloatingChat', {
-                detail: { friend: person }
-            }));
         } catch (error) {
             console.error('Error creating chat:', error);
             alert('Failed to start chat. Please try again.');
