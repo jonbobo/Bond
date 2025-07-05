@@ -1,4 +1,4 @@
-// File: src/components/pages/HomePage.jsx - OPTIMIZED VERSION
+// File: src/components/pages/HomePage.jsx - WITH COMMENT SYSTEM
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../services/firebase';
@@ -6,6 +6,7 @@ import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/f
 import { getFeedPosts, togglePostLike } from '../services/postUtils';
 import { getCurrentUserProfile, getUserFriends } from '../services/authUtils';
 import PostModal from '../modals/PostModal';
+import PostCard from '../common/PostCard';
 import './HomePage.css';
 
 const HomePage = () => {
@@ -218,22 +219,18 @@ const HomePage = () => {
         }
     };
 
+    // ✅ NEW: Handle post updates (for comments, etc.)
+    const handlePostUpdate = (postId, updatedPost) => {
+        setPosts(prevPosts =>
+            prevPosts.map(post =>
+                post.id === postId ? updatedPost : post
+            )
+        );
+    };
+
     const handlePostCreated = async () => {
         // Real-time listener will automatically pick up new posts
         console.log('✅ New post created - real-time listener will update feed');
-    };
-
-    const formatTimeAgo = (timestamp) => {
-        if (!timestamp) return 'Just now';
-
-        const now = new Date();
-        const postTime = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        const diffInSeconds = Math.floor((now - postTime) / 1000);
-
-        if (diffInSeconds < 60) return 'Just now';
-        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-        return `${Math.floor(diffInSeconds / 86400)}d ago`;
     };
 
     const getAvatarInitials = (displayName) => {
@@ -300,54 +297,20 @@ const HomePage = () => {
                                 borderRadius: '50%',
                                 backgroundColor: realtimeListeners.length > 0 ? '#48bb78' : '#718096'
                             }}></span>
-                            {realtimeListeners.length > 0 ? 'Optimized Live Updates' : 'Static Feed'}
+                            {realtimeListeners.length > 0 ? 'Live Updates' : 'Static Feed'}
                         </span>
                     </div>
                 </div>
 
-                {/* Posts */}
+                {/* Posts using PostCard component */}
                 {posts.length > 0 ? (
                     posts.map(post => (
-                        <div key={post.id} className="post-card">
-                            <div className="post-header">
-                                <div className="post-author">
-                                    <div className="avatar">
-                                        {getAvatarInitials(post.author?.displayName)}
-                                    </div>
-                                    <div className="author-info">
-                                        <div className="author-name">
-                                            {post.author?.displayName || 'Unknown User'}
-                                        </div>
-                                        <div className="post-time">
-                                            {formatTimeAgo(post.createdAt)}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="post-content">
-                                <p>{post.content}</p>
-                            </div>
-
-                            <div className="post-actions">
-                                <button
-                                    className={`action-btn like ${post.likes?.includes(user.uid) ? 'liked' : ''}`}
-                                    onClick={() => handleLike(post.id)}
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-                                    </svg>
-                                    <span>{post.likeCount || 0}</span>
-                                </button>
-
-                                <button className="action-btn comment">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"></path>
-                                    </svg>
-                                    <span>{post.commentCount || 0}</span>
-                                </button>
-                            </div>
-                        </div>
+                        <PostCard
+                            key={post.id}
+                            post={post}
+                            onLike={handleLike}
+                            onPostUpdate={handlePostUpdate}
+                        />
                     ))
                 ) : (
                     <div className="feed-empty">

@@ -1,4 +1,4 @@
-// components/services/postUtils.js - OPTIMIZED VERSION
+// components/services/postUtils.js - COST-OPTIMIZED WITH PAGINATION
 import {
     collection,
     addDoc,
@@ -13,7 +13,11 @@ import {
     deleteDoc,
     arrayUnion,
     arrayRemove,
-    serverTimestamp
+    serverTimestamp,
+    increment,
+    writeBatch,
+    onSnapshot,
+    startAfter
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
@@ -46,9 +50,8 @@ export async function createPost(content, visibility = 'friends') {
             updatedAt: serverTimestamp(),
             visibility: visibility,
             likes: [],
-            comments: [],
             likeCount: 0,
-            commentCount: 0
+            commentCount: 0  // ✅ Only store count, not actual comments
         };
 
         const docRef = await addDoc(collection(db, "posts"), postData);
@@ -57,6 +60,256 @@ export async function createPost(content, visibility = 'friends') {
         console.error("Error creating post:", error);
         throw new Error("Failed to create post");
     }
+}
+
+// 💰 COST-OPTIMIZED: Add comment as separate document + increment counter
+export async function addComment(postId, content) {
+    if (!auth.currentUser) {
+        throw new Error("You must be logged in to comment");
+    }
+
+    if (!content || content.trim().length === 0) {
+        throw new Error("Comment content cannot be empty");
+    }
+
+    // Reasonable limit to prevent abuse
+    if (content.length > 500) {
+        throw new Error("Comment too long. Maximum 500 characters.");
+    }
+
+    try {
+        // Get current user data for comment author info
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        // Get current post to check permissions
+        const postRef = doc(db, "posts", postId);
+        const postSnap = await getDoc(postRef);
+
+        if (!postSnap.exists()) {
+            throw new Error("Post not found");
+        }
+
+        const postData = postSnap.data();
+
+        // Check if user can comment (friends or public posts)
+        if (postData.visibility === 'private' && postData.authorId !== auth.currentUser.uid) {
+            const areFriendsResult = await areFriends(auth.currentUser.uid, postData.authorId);
+            if (!areFriendsResult) {
+                throw new Error("You don't have permission to comment on this post");
+            }
+        }
+
+        // ✅ WRITE OPTIMIZATION: Use batch write for atomicity (2 writes total)
+        const batch = writeBatch(db);
+
+        // Create comment as separate document in subcollection
+        const commentData = {
+            content: content.trim(),
+            authorId: auth.currentUser.uid,
+            author: {
+                id: auth.currentUser.uid,
+                username: userData.username || 'unknown',
+                displayName: userData.displayName || auth.currentUser.displayName || 'Unknown User',
+                profilePicture: userData.profilePicture || null
+            },
+            postId: postId,
+            createdAt: serverTimestamp(),
+            likeCount: 0,
+            likes: [] // Keep small for quick like checks
+        };
+
+        // Add comment to subcollection
+        const commentRef = doc(collection(db, "posts", postId, "comments"));
+        batch.set(commentRef, commentData);
+
+        // ✅ ONLY update comment count in post (not entire comments array)
+        batch.update(postRef, {
+            commentCount: increment(1),
+            updatedAt: serverTimestamp()
+        });
+
+        // Execute batch write (2 writes total instead of rewriting entire post)
+        await batch.commit();
+
+        return {
+            id: commentRef.id,
+            ...commentData,
+            createdAt: new Date() // For immediate UI update
+        };
+    } catch (error) {
+        console.error("Error adding comment:", error);
+        throw error;
+    }
+}
+
+// 💰 COST-OPTIMIZED: Get comments with pagination support
+export async function getPostComments(postId, limitCount = 20, startAfterDoc = null) {
+    try {
+        let commentsQuery = query(
+            collection(db, "posts", postId, "comments"),
+            orderBy("createdAt", "asc"), // Oldest first for proper pagination
+            limit(limitCount + 1) // Get one extra to check if there are more
+        );
+
+        // Add pagination if provided
+        if (startAfterDoc) {
+            commentsQuery = query(
+                collection(db, "posts", postId, "comments"),
+                orderBy("createdAt", "asc"),
+                startAfter(startAfterDoc),
+                limit(limitCount + 1)
+            );
+        }
+
+        const querySnapshot = await getDocs(commentsQuery);
+        const comments = [];
+        const docs = [];
+
+        querySnapshot.forEach((docSnap) => {
+            comments.push({
+                id: docSnap.id,
+                ...docSnap.data()
+            });
+            docs.push(docSnap);
+        });
+
+        // Check if there are more comments
+        const hasMore = comments.length > limitCount;
+        if (hasMore) {
+            comments.pop(); // Remove the extra comment
+            docs.pop(); // Remove the extra doc
+        }
+
+        // Get the last document for next pagination
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+
+        return {
+            comments: comments || [],
+            hasMore: hasMore || false,
+            lastDoc: lastDoc || null
+        };
+    } catch (error) {
+        console.error("Error getting comments:", error);
+        // Return safe defaults on error
+        return {
+            comments: [],
+            hasMore: false,
+            lastDoc: null
+        };
+    }
+}
+
+// ✅ OPTIMIZED: Delete comment + decrement counter
+export async function deleteComment(postId, commentId) {
+    if (!auth.currentUser) {
+        throw new Error("You must be logged in to delete comments");
+    }
+
+    try {
+        const commentRef = doc(db, "posts", postId, "comments", commentId);
+        const commentSnap = await getDoc(commentRef);
+
+        if (!commentSnap.exists()) {
+            throw new Error("Comment not found");
+        }
+
+        const commentData = commentSnap.data();
+
+        // Check permissions - only comment author or post author can delete
+        const postSnap = await getDoc(doc(db, "posts", postId));
+        const postData = postSnap.exists() ? postSnap.data() : null;
+
+        if (commentData.authorId !== auth.currentUser.uid &&
+            postData?.authorId !== auth.currentUser.uid) {
+            throw new Error("You don't have permission to delete this comment");
+        }
+
+        // ✅ WRITE OPTIMIZATION: Batch delete + decrement (2 writes total)
+        const batch = writeBatch(db);
+
+        // Delete comment document
+        batch.delete(commentRef);
+
+        // Decrement comment count in post
+        batch.update(doc(db, "posts", postId), {
+            commentCount: increment(-1),
+            updatedAt: serverTimestamp()
+        });
+
+        await batch.commit();
+        return true;
+    } catch (error) {
+        console.error("Error deleting comment:", error);
+        throw error;
+    }
+}
+
+// ✅ OPTIMIZED: Like comment without rewriting post (1 write only)
+export async function toggleCommentLike(postId, commentId) {
+    if (!auth.currentUser) {
+        throw new Error("You must be logged in to like comments");
+    }
+
+    try {
+        const commentRef = doc(db, "posts", postId, "comments", commentId);
+        const commentSnap = await getDoc(commentRef);
+
+        if (!commentSnap.exists()) {
+            throw new Error("Comment not found");
+        }
+
+        const commentData = commentSnap.data();
+        const userId = auth.currentUser.uid;
+        const currentLikes = commentData.likes || [];
+        const isLiked = currentLikes.includes(userId);
+
+        // ✅ SINGLE WRITE: Update only the comment document
+        if (isLiked) {
+            await updateDoc(commentRef, {
+                likes: arrayRemove(userId),
+                likeCount: increment(-1)
+            });
+        } else {
+            await updateDoc(commentRef, {
+                likes: arrayUnion(userId),
+                likeCount: increment(1)
+            });
+        }
+
+        return {
+            id: commentId,
+            ...commentData,
+            likes: isLiked
+                ? currentLikes.filter(id => id !== userId)
+                : [...currentLikes, userId],
+            likeCount: (commentData.likeCount || 0) + (isLiked ? -1 : 1)
+        };
+    } catch (error) {
+        console.error("Error toggling comment like:", error);
+        throw error;
+    }
+}
+
+// 💰 COST-OPTIMIZED: Real-time comments listener for recent comments only
+export function subscribeToComments(postId, callback, limitCount = 20) {
+    const commentsQuery = query(
+        collection(db, "posts", postId, "comments"),
+        orderBy("createdAt", "desc"), // Most recent first for real-time
+        limit(limitCount) // Limit real-time to recent comments for cost control
+    );
+
+    return onSnapshot(commentsQuery, (querySnapshot) => {
+        const comments = [];
+        querySnapshot.forEach((docSnap) => {
+            comments.push({
+                id: docSnap.id,
+                ...docSnap.data()
+            });
+        });
+
+        callback(comments.reverse() || []); // Oldest first for UI, ensure array
+    });
 }
 
 // Get posts for user's feed (OPTIMIZED - no additional user queries needed)
@@ -86,15 +339,10 @@ export async function getFeedPosts(userId, limitCount = 20) {
         querySnapshot.forEach((docSnap) => {
             const postData = docSnap.data();
 
-            // Additional privacy check
-            if (postData.visibility === 'friends' && postData.authorId !== userId) {
-                // Skip privacy check for now - could cache friend status
-            }
-
             posts.push({
                 id: docSnap.id,
                 ...postData
-                // author data is already included in postData.author
+                // ✅ Comments are now loaded separately when needed
             });
         });
 
@@ -105,7 +353,7 @@ export async function getFeedPosts(userId, limitCount = 20) {
     }
 }
 
-// Batch like operations to reduce writes
+// ✅ OPTIMIZED: Post likes with increment (no read required)
 export async function togglePostLike(postId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to like posts");
@@ -124,17 +372,17 @@ export async function togglePostLike(postId) {
         const currentLikes = postData.likes || [];
         const isLiked = currentLikes.includes(userId);
 
-        // ✅ SINGLE WRITE instead of separate array and count updates
+        // ✅ SINGLE WRITE with increment for better performance
         if (isLiked) {
             await updateDoc(postRef, {
                 likes: arrayRemove(userId),
-                likeCount: Math.max(0, (postData.likeCount || 0) - 1),
+                likeCount: increment(-1),
                 updatedAt: serverTimestamp()
             });
         } else {
             await updateDoc(postRef, {
                 likes: arrayUnion(userId),
-                likeCount: (postData.likeCount || 0) + 1,
+                likeCount: increment(1),
                 updatedAt: serverTimestamp()
             });
         }
@@ -202,7 +450,6 @@ export async function getUserPosts(authorId, viewerId, limitCount = 20) {
             posts.push({
                 id: docSnap.id,
                 ...postData
-                // author data already included
             });
         });
 
@@ -232,6 +479,7 @@ export async function deletePost(postId) {
             throw new Error("You can only delete your own posts");
         }
 
+        // ✅ TODO: Could optimize to batch delete all comments in subcollection
         await deleteDoc(postRef);
         return true;
     } catch (error) {
