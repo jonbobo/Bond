@@ -3,6 +3,7 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { getUserFriendsForChat, searchUsers } from '../services/chatUtils';
+import { subscribeToMultipleUsersPresence } from '../services/presenceUtils'; // ✅ NEW: Realtime DB presence
 
 const ContactsSidebar = () => {
     const [user] = useAuthState(auth);
@@ -11,11 +12,13 @@ const ContactsSidebar = () => {
     const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
+    const [presenceData, setPresenceData] = useState({}); // ✅ NEW: Real-time presence data
 
     // Real-time listener for user's friends list changes
     useEffect(() => {
         if (!user) {
             setFriends([]);
+            setPresenceData({});
             return;
         }
 
@@ -75,37 +78,31 @@ const ContactsSidebar = () => {
         loadFriends();
     }, [user]);
 
-    // Periodic refresh for online status updates
+    // ✅ NEW: Real-time presence tracking for friends
     useEffect(() => {
-        if (!user) return;
+        if (!user || friends.length === 0) {
+            setPresenceData({});
+            return;
+        }
 
-        const refreshOnlineStatus = async () => {
-            try {
-                const friendsList = await getUserFriendsForChat(user.uid);
-                setFriends(prev => {
-                    // Only update if there are actual changes to prevent unnecessary re-renders
-                    const hasChanges = prev.length !== friendsList.length ||
-                        prev.some((friend, index) => {
-                            const newFriend = friendsList[index];
-                            return !newFriend || friend.isOnline !== newFriend.isOnline;
-                        });
+        console.log('🔄 Setting up real-time presence for', friends.length, 'friends');
 
-                    if (hasChanges) {
-                        console.log('🔄 Online status updated');
-                        return friendsList;
-                    }
-                    return prev;
-                });
-            } catch (error) {
-                console.error('Error refreshing online status:', error);
+        const friendIds = friends.map(friend => friend.id);
+
+        // Subscribe to real-time presence updates
+        const unsubscribePresence = subscribeToMultipleUsersPresence(
+            friendIds,
+            (newPresenceData) => {
+                console.log('📡 Presence data updated:', Object.keys(newPresenceData).length, 'users');
+                setPresenceData(newPresenceData);
             }
+        );
+
+        return () => {
+            console.log('🧹 Cleaning up presence listeners');
+            unsubscribePresence();
         };
-
-        // Refresh online status every 30 seconds
-        const interval = setInterval(refreshOnlineStatus, 30000);
-
-        return () => clearInterval(interval);
-    }, [user]);
+    }, [user, friends]);
 
     // Search for users (friends and non-friends)
     useEffect(() => {
@@ -146,6 +143,7 @@ const ContactsSidebar = () => {
     const formatLastSeen = (lastSeen) => {
         if (!lastSeen) return 'Long ago';
 
+        // Handle both Firebase timestamp and regular timestamp
         const date = lastSeen.toDate ? lastSeen.toDate() : new Date(lastSeen);
         const now = new Date();
         const diffInMinutes = Math.floor((now - date) / (1000 * 60));
@@ -154,6 +152,18 @@ const ContactsSidebar = () => {
         if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
         if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
         return `${Math.floor(diffInMinutes / 1440)}d ago`;
+    };
+
+    // ✅ NEW: Get real-time online status for a friend
+    const getFriendOnlineStatus = (friendId) => {
+        const presence = presenceData[friendId];
+        return presence ? presence.isOnline : false;
+    };
+
+    // ✅ NEW: Get last seen from real-time presence data
+    const getFriendLastSeen = (friendId) => {
+        const presence = presenceData[friendId];
+        return presence ? presence.lastSeen : null;
     };
 
     if (!user) return null;
@@ -207,6 +217,7 @@ const ContactsSidebar = () => {
                                     >
                                         <div className="contact-avatar">
                                             {getAvatarInitials(person.displayName)}
+                                            {/* ✅ Use search results' isOnline (if available) */}
                                             {person.isOnline && <div className="online-indicator"></div>}
                                         </div>
                                         <div className="contact-info">
@@ -221,19 +232,19 @@ const ContactsSidebar = () => {
                                 ))}
                             </div>
                         ) : (
-                            /* Friends List */
+                            /* Friends List with Real-time Presence */
                             <>
                                 {/* Online Friends First */}
-                                {friends.filter(friend => friend.isOnline).length > 0 && (
+                                {friends.filter(friend => getFriendOnlineStatus(friend.id)).length > 0 && (
                                     <div className="contacts-section">
                                         <div className="section-header">
                                             <span className="section-title">Online</span>
                                             <span className="section-count">
-                                                {friends.filter(friend => friend.isOnline).length}
+                                                {friends.filter(friend => getFriendOnlineStatus(friend.id)).length}
                                             </span>
                                         </div>
                                         {friends
-                                            .filter(friend => friend.isOnline)
+                                            .filter(friend => getFriendOnlineStatus(friend.id))
                                             .map(friend => (
                                                 <div
                                                     key={friend.id}
@@ -258,20 +269,20 @@ const ContactsSidebar = () => {
                                 )}
 
                                 {/* Offline Friends */}
-                                {friends.filter(friend => !friend.isOnline).length > 0 && (
+                                {friends.filter(friend => !getFriendOnlineStatus(friend.id)).length > 0 && (
                                     <div className="contacts-section">
                                         <div className="section-header">
                                             <span className="section-title">Offline</span>
                                             <span className="section-count">
-                                                {friends.filter(friend => !friend.isOnline).length}
+                                                {friends.filter(friend => !getFriendOnlineStatus(friend.id)).length}
                                             </span>
                                         </div>
                                         {friends
-                                            .filter(friend => !friend.isOnline)
+                                            .filter(friend => !getFriendOnlineStatus(friend.id))
                                             .sort((a, b) => {
                                                 // Sort by last seen (most recent first)
-                                                const aTime = a.lastSeen?.toDate?.() || new Date(0);
-                                                const bTime = b.lastSeen?.toDate?.() || new Date(0);
+                                                const aTime = getFriendLastSeen(a.id) || 0;
+                                                const bTime = getFriendLastSeen(b.id) || 0;
                                                 return bTime - aTime;
                                             })
                                             .map(friend => (
@@ -288,7 +299,7 @@ const ContactsSidebar = () => {
                                                             {friend.displayName}
                                                         </div>
                                                         <div className="contact-status">
-                                                            {formatLastSeen(friend.lastSeen)}
+                                                            {formatLastSeen(getFriendLastSeen(friend.id))}
                                                         </div>
                                                     </div>
                                                 </div>

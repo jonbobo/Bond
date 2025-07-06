@@ -15,96 +15,8 @@ import {
 } from 'firebase/firestore';
 
 import { db, auth } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 
-// 🛑 OPTIMIZED PRESENCE SYSTEM - 80% cost reduction
-let lastPresenceUpdate = 0;
-let lastPresenceValue = null;
-let presenceUpdateTimeout = null;
-
-// ✅ MAJOR OPTIMIZATION: Throttle presence updates to 5 minutes minimum
-export async function updateOnlineStatus(isOnline) {
-    if (!auth.currentUser) return;
-
-    const now = Date.now();
-    const THROTTLE_INTERVAL = 300000; // 5 minutes instead of 30 seconds
-
-    // 🛑 Skip if same status and within throttle period
-    if (
-        lastPresenceValue === isOnline &&
-        (now - lastPresenceUpdate) < THROTTLE_INTERVAL
-    ) {
-        console.log('⏩ Throttling presence update');
-        return;
-    }
-
-    // 🛑 Debounce rapid calls
-    if (presenceUpdateTimeout) {
-        clearTimeout(presenceUpdateTimeout);
-    }
-
-    presenceUpdateTimeout = setTimeout(async () => {
-        try {
-            const userRef = doc(db, "users", auth.currentUser.uid);
-            await updateDoc(userRef, {
-                isOnline,
-                lastSeen: serverTimestamp()
-            });
-
-            lastPresenceUpdate = now;
-            lastPresenceValue = isOnline;
-            console.log('✅ Presence updated (throttled):', isOnline);
-        } catch (err) {
-            console.error("❌ Error updating presence:", err);
-        }
-    }, 2000); // 2 second debounce
-}
-
-// ✅ OPTIMIZED: Setup presence tracking with better intervals
-function setupPresenceTracking() {
-    if (!auth.currentUser) return;
-
-    // Only update on significant state changes
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-            updateOnlineStatus(true);
-        } else {
-            // Don't immediately mark offline, user might switch tabs quickly
-            setTimeout(() => {
-                if (document.visibilityState !== 'visible') {
-                    updateOnlineStatus(false);
-                }
-            }, 30000); // 30 seconds delay before marking offline
-        }
-    });
-
-    window.addEventListener('online', () => updateOnlineStatus(true));
-    window.addEventListener('offline', () => updateOnlineStatus(false));
-    window.addEventListener('beforeunload', () => updateOnlineStatus(false));
-
-    // ✅ OPTIMIZED: Heartbeat every 10 minutes instead of 30 seconds
-    const heartbeat = setInterval(() => {
-        if (!document.hidden && navigator.onLine) {
-            updateOnlineStatus(true);
-        }
-    }, 600000); // 10 minutes
-
-    // Cleanup function
-    return () => {
-        clearInterval(heartbeat);
-        if (presenceUpdateTimeout) {
-            clearTimeout(presenceUpdateTimeout);
-        }
-    };
-}
-
-// Setup tracking when auth state changes
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        setupPresenceTracking();
-        updateOnlineStatus(true);
-    }
-});
+// ✅ REMOVED: All presence-related code - now handled by presenceUtils.js
 
 // ✅ OPTIMIZED: Include participant data in chat document (denormalized)
 export async function createOrGetChat(participantId) {
@@ -351,6 +263,7 @@ export async function markChatAsRead(chatId) {
     markAsReadTimeouts.set(chatId, timeoutId);
 }
 
+// ✅ UPDATED: Get friends for chat without presence data (presence handled separately)
 export async function getUserFriendsForChat(userId) {
     const userDoc = await getDoc(doc(db, "users", userId));
     if (!userDoc.exists()) return [];
@@ -367,8 +280,8 @@ export async function getUserFriendsForChat(userId) {
                 username: data.username,
                 displayName: data.displayName,
                 profilePicture: data.profilePicture,
-                lastSeen: data.lastSeen || null,
-                isOnline: data.isOnline || false
+                bio: data.bio || '',
+                // ✅ REMOVED: isOnline, lastSeen - now handled by presenceUtils.js
             });
         }
     }
@@ -376,6 +289,7 @@ export async function getUserFriendsForChat(userId) {
     return friends;
 }
 
+// ✅ UPDATED: Search users without presence data (presence handled separately)
 export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     if (!searchTerm || searchTerm.trim().length < 2) return [];
 
@@ -411,8 +325,7 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
             displayName: data.displayName,
             profilePicture: data.profilePicture,
             bio: data.bio,
-            isOnline: data.isOnline || false,
-            lastSeen: data.lastSeen || null
+            // ✅ REMOVED: isOnline, lastSeen - presence handled by presenceUtils.js
         });
     }
 

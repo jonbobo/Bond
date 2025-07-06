@@ -6,7 +6,7 @@ import {
     browserLocalPersistence,
     browserSessionPersistence,
     updateProfile,
-    signOut as firebaseSignOut // Add this import
+    signOut as firebaseSignOut
 } from 'firebase/auth';
 
 import {
@@ -17,10 +17,9 @@ import {
     doc,
     getDoc,
     writeBatch,
-    updateDoc, // Add this import
-    serverTimestamp // Add this import
 } from 'firebase/firestore';
 import { auth, db, isValidEmail, isStrongPassword, isValidUsername } from './firebase';
+import { setUserOffline, cleanupPresenceSystem } from './presenceUtils'; // ✅ NEW: Use Realtime DB presence
 
 // Check if username is available
 export async function isUsernameAvailable(username) {
@@ -139,8 +138,7 @@ export async function registerUser(email, password, username, rememberMe = false
             friends: [],
             friendRequests: [],
             sentRequests: [],
-            isOnline: false,
-            lastSeen: new Date()
+            // ✅ REMOVED: isOnline, lastSeen - now handled by Realtime DB
         });
 
         // ✅ COMMIT BATCH - Single write operation instead of 2 separate writes
@@ -157,6 +155,9 @@ export async function registerUser(email, password, username, rememberMe = false
             console.error("⚠️ Error updating Firebase Auth profile:", profileError);
             // Don't fail registration for this
         }
+
+        // ✅ NOTE: Presence is automatically handled by presenceUtils.js
+        console.log('✅ User presence will be automatically managed by Realtime Database');
 
         return user;
     } catch (error) {
@@ -218,6 +219,9 @@ export async function loginUser(emailOrUsername, password, rememberMe = false) {
         }
 
         console.log('✅ Login successful:', userCredential.user.uid);
+        // ✅ NOTE: Presence is automatically handled by presenceUtils.js
+        console.log('✅ User presence automatically set to online by Realtime Database');
+
         return userCredential.user;
 
     } catch (error) {
@@ -320,18 +324,39 @@ export async function signOut() {
         const user = auth.currentUser;
 
         if (user) {
-            // Update Firestore status BEFORE signing out
-            await updateDoc(doc(db, "users", user.uid), {
-                isOnline: false,
-                lastSeen: serverTimestamp()
-            });
+            console.log('🚪 Starting logout process...');
+
+            // ✅ STEP 1: Set user offline in Realtime Database (with disconnect handler cancellation)
+            try {
+                await setUserOffline();
+                console.log('✅ User presence set to offline');
+            } catch (presenceError) {
+                console.error('⚠️ Failed to set user offline, continuing with sign out:', presenceError);
+                // Don't fail the entire sign-out process if presence update fails
+            }
+
+            // ✅ STEP 2: Small delay to ensure database write completes
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        // Then sign out from Firebase Auth
+        // ✅ STEP 3: Sign out from Firebase Auth
         await firebaseSignOut(auth);
-        console.log('✅ Signed out successfully');
+        console.log('✅ Firebase Auth sign out completed');
+
+        // ✅ STEP 4: Clean up presence system (this will also be called by onAuthStateChanged)
+        cleanupPresenceSystem();
+        console.log('✅ Presence system cleaned up');
+
     } catch (error) {
         console.error('❌ Sign-out error:', error);
+
+        // ✅ Even if there's an error, try to clean up presence system
+        try {
+            cleanupPresenceSystem();
+        } catch (cleanupError) {
+            console.error('❌ Error during cleanup:', cleanupError);
+        }
+
         throw error;
     }
 }

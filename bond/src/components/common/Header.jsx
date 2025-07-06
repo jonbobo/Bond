@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../services/firebase';
-import { getCurrentUserProfile } from '../services/authUtils';
+import { getCurrentUserProfile, signOut } from '../services/authUtils'; // ✅ FIXED: Import signOut from authUtils
 import NotificationIcon from '../icons/NotificationIcon';
 
 const Header = () => {
     const [user] = useAuthState(auth);
     const [showProfileMenu, setShowProfileMenu] = useState(false);
     const [userProfile, setUserProfile] = useState(null);
+    const [isSigningOut, setIsSigningOut] = useState(false); // ✅ NEW: Track signing out state
 
     useEffect(() => {
         const loadUserProfile = async () => {
@@ -23,11 +24,29 @@ const Header = () => {
         loadUserProfile();
     }, [user]);
 
+    // ✅ FIXED: Use the proper signOut function from authUtils
     const handleSignOut = async () => {
+        if (isSigningOut) return; // Prevent double-clicking
+
         try {
-            await auth.signOut();
+            setIsSigningOut(true);
+            console.log('🚪 Header: Starting sign out process...');
+
+            // ✅ This will now properly:
+            // - Set user offline in Realtime Database
+            // - Cancel disconnect handlers
+            // - Clean up presence system
+            // - Sign out from Firebase Auth
+            await signOut();
+
+            console.log('✅ Header: Sign out completed');
+            setShowProfileMenu(false); // Close dropdown
         } catch (error) {
-            console.error('Sign out error:', error);
+            console.error('❌ Header: Sign out error:', error);
+            // Optionally show user-friendly error message
+            alert('Error signing out. Please try again.');
+        } finally {
+            setIsSigningOut(false);
         }
     };
 
@@ -131,8 +150,10 @@ const Header = () => {
                                 <button
                                     className="dropdown-item signout"
                                     onClick={handleSignOut}
+                                    disabled={isSigningOut} // ✅ NEW: Prevent double-clicking
                                 >
-                                    Sign Out
+                                    {/* ✅ NEW: Show loading state */}
+                                    {isSigningOut ? 'Signing Out...' : 'Sign Out'}
                                 </button>
                             </div>
                         </div>

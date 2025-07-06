@@ -4,6 +4,9 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './components/services/firebase';
 import LoginForm from './components/auth/LoginForm';
 
+// ✅ CRITICAL: Import presence system to initialize it
+import './components/services/presenceUtils';
+
 // Context Providers
 import { ChatProvider } from './components/contexts/ChatContext';
 

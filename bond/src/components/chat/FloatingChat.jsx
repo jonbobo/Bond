@@ -7,6 +7,7 @@ import {
     subscribeToMessages,
     markChatAsRead
 } from '../services/chatUtils';
+import { subscribeToUserPresence } from '../services/presenceUtils'; // ✅ NEW: Real-time presence
 import './FloatingChat.css';
 
 const FloatingChat = ({ friend, onClose, isMinimized, onToggleMinimize }) => {
@@ -17,9 +18,38 @@ const FloatingChat = ({ friend, onClose, isMinimized, onToggleMinimize }) => {
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [initialized, setInitialized] = useState(false);
+    const [friendIsOnline, setFriendIsOnline] = useState(false); // ✅ NEW: Real-time online status
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const unsubscribeRef = useRef(null);
+    const presenceUnsubscribeRef = useRef(null); // ✅ NEW: Presence cleanup
+
+    // ✅ NEW: Subscribe to friend's real-time presence
+    useEffect(() => {
+        if (!friend?.id) {
+            setFriendIsOnline(false);
+            return;
+        }
+
+        console.log('🔄 Setting up presence listener for friend:', friend.id);
+
+        const unsubscribePresence = subscribeToUserPresence(
+            friend.id,
+            (isOnline, lastSeen) => {
+                console.log('📡 Friend presence updated:', { friendId: friend.id, isOnline });
+                setFriendIsOnline(isOnline);
+            }
+        );
+
+        presenceUnsubscribeRef.current = unsubscribePresence;
+
+        return () => {
+            console.log('🧹 Cleaning up presence listener for friend:', friend.id);
+            if (unsubscribePresence) {
+                unsubscribePresence();
+            }
+        };
+    }, [friend?.id]);
 
     // Initialize chat when friend changes
     useEffect(() => {
@@ -190,12 +220,14 @@ const FloatingChat = ({ friend, onClose, isMinimized, onToggleMinimize }) => {
                 <div className="chat-header-info">
                     <div className="chat-avatar">
                         {getAvatarInitials(friend.displayName)}
-                        {friend.isOnline && <div className="online-indicator"></div>}
+                        {/* ✅ FIXED: Use real-time presence data */}
+                        {friendIsOnline && <div className="online-indicator"></div>}
                     </div>
                     <div className="chat-user-info">
                         <span className="chat-username">{friend.displayName}</span>
                         <span className="chat-status">
-                            {friend.isOnline ? 'Active now' : 'Offline'}
+                            {/* ✅ SIMPLE: Just show Active now or Offline */}
+                            {friendIsOnline ? 'Active now' : 'Offline'}
                         </span>
                     </div>
                 </div>
