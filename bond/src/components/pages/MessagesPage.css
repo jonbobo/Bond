@@ -7,6 +7,8 @@
     flex-direction: column !important;
     font-family: inherit;
     background: transparent;
+    margin-right: 280px !important;
+    transition: margin-right 0.2s ease !important;
 }
 
 /* Page header */

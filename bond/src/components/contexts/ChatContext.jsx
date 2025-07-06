@@ -1,13 +1,13 @@
-// contexts/ChatContext.jsx
-import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
+// ChatContext.jsx - OPTIMIZED: Click-to-load messages (no real-time listeners)
+import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../services/firebase';
 import {
     subscribeToUserChats,
-    subscribeToMessages,
     sendMessage as sendMessageService,
     markChatAsRead as markChatAsReadService,
-    createOrGetChat as createOrGetChatService
+    createOrGetChat as createOrGetChatService,
+    getMessagesOnce // ✅ NEW: Get messages without listener
 } from '../services/chatUtils';
 
 // Action types
@@ -15,6 +15,7 @@ const CHAT_ACTIONS = {
     SET_CHATS: 'SET_CHATS',
     SET_MESSAGES: 'SET_MESSAGES',
     SET_LOADING: 'SET_LOADING',
+    SET_MESSAGES_LOADING: 'SET_MESSAGES_LOADING', // ✅ NEW: Separate loading for messages
     SET_SENDING: 'SET_SENDING',
     MARK_AS_READ: 'MARK_AS_READ',
     SET_ERROR: 'SET_ERROR',
@@ -24,9 +25,9 @@ const CHAT_ACTIONS = {
 // Initial state
 const initialState = {
     chats: [],
-    messagesByChat: {}, // { chatId: messages[] }
+    messagesByChat: {}, // { chatId: { messages: [], loading: false, lastFetch: timestamp } }
     loading: false,
-    sending: {},  // { chatId: boolean }
+    sending: {},
     error: null
 };
 
@@ -45,7 +46,23 @@ const chatReducer = (state, action) => {
                 ...state,
                 messagesByChat: {
                     ...state.messagesByChat,
-                    [action.payload.chatId]: action.payload.messages
+                    [action.payload.chatId]: {
+                        messages: action.payload.messages,
+                        loading: false,
+                        lastFetch: Date.now()
+                    }
+                }
+            };
+
+        case CHAT_ACTIONS.SET_MESSAGES_LOADING:
+            return {
+                ...state,
+                messagesByChat: {
+                    ...state.messagesByChat,
+                    [action.payload.chatId]: {
+                        ...(state.messagesByChat[action.payload.chatId] || { messages: [] }),
+                        loading: action.payload.loading
+                    }
                 }
             };
 
@@ -77,7 +94,8 @@ const chatReducer = (state, action) => {
         case CHAT_ACTIONS.SET_ERROR:
             return {
                 ...state,
-                error: action.payload
+                error: action.payload,
+                loading: false
             };
 
         case CHAT_ACTIONS.RESET_STATE:
@@ -96,8 +114,7 @@ const ChatDispatchContext = createContext();
 export const ChatProvider = ({ children }) => {
     const [user] = useAuthState(auth);
     const [state, dispatch] = useReducer(chatReducer, initialState);
-    const messageListeners = useRef(new Map()); // Track message listeners
-    const chatUnsubscribe = useRef(null);
+    const chatUnsubscribe = React.useRef(null);
 
     // Reset state when user logs out
     useEffect(() => {
@@ -105,48 +122,69 @@ export const ChatProvider = ({ children }) => {
             console.log('🧹 User logged out, cleaning up chat state');
             dispatch({ type: CHAT_ACTIONS.RESET_STATE });
 
-            // Cleanup all listeners
-            messageListeners.current.forEach(unsubscribe => {
-                if (typeof unsubscribe === 'function') {
-                    unsubscribe();
-                }
-            });
-            messageListeners.current.clear();
-
             if (chatUnsubscribe.current) {
-                chatUnsubscribe.current();
+                try {
+                    chatUnsubscribe.current();
+                } catch (error) {
+                    console.error('Error cleaning up chat listener:', error);
+                }
                 chatUnsubscribe.current = null;
             }
         }
     }, [user]);
 
-    // Set up chat list listener
+    // ✅ OPTIMIZED: Only chat list listener (no message listeners)
     useEffect(() => {
         if (!user) return;
 
         console.log('🔄 Setting up chat list listener for user:', user.uid);
         dispatch({ type: CHAT_ACTIONS.SET_LOADING, payload: true });
 
-        const unsubscribe = subscribeToUserChats(user.uid, (chats) => {
-            console.log('📝 Chats updated via context:', chats.length);
-            dispatch({ type: CHAT_ACTIONS.SET_CHATS, payload: chats });
-        });
+        try {
+            const unsubscribe = subscribeToUserChats(user.uid, (chats) => {
+                console.log('📝 Chats updated:', chats.length);
 
-        chatUnsubscribe.current = unsubscribe;
+                const validChats = chats.filter(chat =>
+                    chat && chat.id && chat.otherParticipant
+                ).map(chat => ({
+                    ...chat,
+                    otherParticipant: chat.otherParticipant || {
+                        id: 'unknown',
+                        username: 'unknown',
+                        displayName: 'Unknown User',
+                        profilePicture: null
+                    },
+                    unreadCount: typeof chat.unreadCount === 'number' ? chat.unreadCount : 0,
+                    lastMessage: chat.lastMessage || '',
+                    lastMessageAt: chat.lastMessageAt || null
+                }));
 
-        return () => {
-            if (unsubscribe) {
-                console.log('🧹 Cleaning up chat list listener');
-                unsubscribe();
-            }
-        };
+                dispatch({ type: CHAT_ACTIONS.SET_CHATS, payload: validChats });
+            });
+
+            chatUnsubscribe.current = unsubscribe;
+
+            return () => {
+                if (unsubscribe) {
+                    console.log('🧹 Cleaning up chat list listener');
+                    try {
+                        unsubscribe();
+                    } catch (error) {
+                        console.error('Error cleaning up chat listener:', error);
+                    }
+                }
+            };
+        } catch (error) {
+            console.error('❌ Error setting up chat listener:', error);
+            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: 'Failed to connect to chat service' });
+            dispatch({ type: CHAT_ACTIONS.SET_LOADING, payload: false });
+        }
     }, [user]);
 
     // Provide state and dispatch
     const contextValue = {
         state,
-        dispatch,
-        messageListeners: messageListeners.current
+        dispatch
     };
 
     return (
@@ -169,44 +207,58 @@ export const useChatState = () => {
 
 // Hook to use chat actions
 export const useChatActions = () => {
-    const { dispatch, messageListeners } = useContext(ChatDispatchContext);
+    const { dispatch } = useContext(ChatDispatchContext);
     const [user] = useAuthState(auth);
 
     if (!dispatch) {
         throw new Error('useChatActions must be used within a ChatProvider');
     }
 
-    // Subscribe to messages for a specific chat
-    const subscribeToMessagesForChat = (chatId) => {
-        if (!chatId || messageListeners.has(chatId)) {
-            console.log('🔄 Already subscribed to chat or invalid chatId:', chatId);
-            return;
-        }
+    // ✅ NEW: Load messages on demand (no real-time listener)
+    const loadMessages = async (chatId, forceRefresh = false) => {
+        if (!chatId) return;
 
-        console.log('🔄 Setting up message listener for chat:', chatId);
+        try {
+            dispatch({
+                type: CHAT_ACTIONS.SET_MESSAGES_LOADING,
+                payload: { chatId, loading: true }
+            });
 
-        const unsubscribe = subscribeToMessages(chatId, (messages) => {
-            console.log('📝 Messages updated for chat:', chatId, messages.length);
+            console.log('📥 Loading messages for chat:', chatId);
+            const messages = await getMessagesOnce(chatId, 50);
+
+            const safeMessages = messages.map(message => ({
+                id: message.id || `temp_${Date.now()}`,
+                chatId: message.chatId || chatId,
+                senderId: message.senderId || 'unknown',
+                sender: message.sender || {
+                    id: message.senderId || 'unknown',
+                    username: 'unknown',
+                    displayName: 'Unknown User',
+                    profilePicture: null
+                },
+                content: message.content || '',
+                createdAt: message.createdAt || new Date(),
+                type: message.type || 'text'
+            }));
+
             dispatch({
                 type: CHAT_ACTIONS.SET_MESSAGES,
-                payload: { chatId, messages }
+                payload: { chatId, messages: safeMessages }
             });
-        });
 
-        messageListeners.set(chatId, unsubscribe);
-    };
-
-    // Unsubscribe from messages for a specific chat
-    const unsubscribeFromMessages = (chatId) => {
-        const unsubscribe = messageListeners.get(chatId);
-        if (unsubscribe) {
-            console.log('🧹 Cleaning up message listener for chat:', chatId);
-            unsubscribe();
-            messageListeners.delete(chatId);
+            console.log(`✅ Loaded ${safeMessages.length} messages for chat: ${chatId}`);
+        } catch (error) {
+            console.error('❌ Error loading messages:', error);
+            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: 'Failed to load messages' });
+            dispatch({
+                type: CHAT_ACTIONS.SET_MESSAGES_LOADING,
+                payload: { chatId, loading: false }
+            });
         }
     };
 
-    // Send message
+    // ✅ OPTIMIZED: Send message + refresh messages once
     const sendMessage = async (chatId, content) => {
         if (!user || !chatId || !content.trim()) {
             throw new Error('Invalid message parameters');
@@ -218,12 +270,18 @@ export const useChatActions = () => {
         });
 
         try {
-            console.log('📤 Sending message via context:', { chatId, content: content.trim() });
+            console.log('📤 Sending message:', { chatId, content: content.trim() });
             await sendMessageService(chatId, content.trim());
+
+            // ✅ Refresh messages after sending (to see the new message)
+            setTimeout(() => {
+                loadMessages(chatId, true);
+            }, 500);
+
             console.log('✅ Message sent successfully');
         } catch (error) {
             console.error('❌ Error sending message:', error);
-            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: error.message });
+            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: 'Failed to send message' });
             throw error;
         } finally {
             dispatch({
@@ -233,21 +291,19 @@ export const useChatActions = () => {
         }
     };
 
-    // Mark chat as read
+    // Mark as read with error handling
     const markAsRead = async (chatId) => {
         if (!chatId) return;
 
         try {
-            console.log('✅ Marking chat as read:', chatId);
             await markChatAsReadService(chatId);
             dispatch({ type: CHAT_ACTIONS.MARK_AS_READ, payload: chatId });
         } catch (error) {
-            console.error('❌ Error marking chat as read:', error);
-            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: error.message });
+            console.error('❌ Error marking chat as read (non-critical):', error);
         }
     };
 
-    // Create or get chat
+    // Create or get chat with error handling
     const createOrGetChat = async (participantId) => {
         if (!participantId) {
             throw new Error('Participant ID is required');
@@ -260,7 +316,7 @@ export const useChatActions = () => {
             return result;
         } catch (error) {
             console.error('❌ Error creating/getting chat:', error);
-            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: error.message });
+            dispatch({ type: CHAT_ACTIONS.SET_ERROR, payload: 'Failed to start conversation' });
             throw error;
         }
     };
@@ -271,8 +327,7 @@ export const useChatActions = () => {
     };
 
     return {
-        subscribeToMessagesForChat,
-        unsubscribeFromMessages,
+        loadMessages, // ✅ NEW: Load messages on demand
         sendMessage,
         markAsRead,
         createOrGetChat,
@@ -280,31 +335,21 @@ export const useChatActions = () => {
     };
 };
 
-// Hook to get messages for a specific chat
+// ✅ SIMPLIFIED: Hook to get messages (no auto-subscription)
 export const useChatMessages = (chatId) => {
     const { messagesByChat, sending } = useChatState();
-    const { subscribeToMessagesForChat, unsubscribeFromMessages } = useChatActions();
 
-    useEffect(() => {
-        if (!chatId) return;
-
-        subscribeToMessagesForChat(chatId);
-
-        // Cleanup on unmount or chat change
-        return () => {
-            // Delay cleanup to allow for quick navigation between components
-            const timeoutId = setTimeout(() => {
-                unsubscribeFromMessages(chatId);
-            }, 5000);
-
-            // Return cleanup function
-            return () => clearTimeout(timeoutId);
-        };
-    }, [chatId, subscribeToMessagesForChat, unsubscribeFromMessages]);
+    const chatData = messagesByChat[chatId] || {
+        messages: [],
+        loading: false,
+        lastFetch: null
+    };
 
     return {
-        messages: messagesByChat[chatId] || [],
-        sending: sending[chatId] || false
+        messages: chatData.messages,
+        loading: chatData.loading,
+        sending: sending[chatId] || false,
+        lastFetch: chatData.lastFetch
     };
 };
 
@@ -313,9 +358,25 @@ export const useFindChatByParticipant = () => {
     const { chats } = useChatState();
 
     const findChatByParticipant = (participantId) => {
-        return chats.find(chat =>
-            chat.otherParticipant?.id === participantId
-        );
+        try {
+            if (!participantId || !Array.isArray(chats)) {
+                return null;
+            }
+
+            return chats.find(chat => {
+                try {
+                    return chat &&
+                        chat.otherParticipant &&
+                        chat.otherParticipant.id === participantId;
+                } catch (error) {
+                    console.error('❌ Error checking chat participant:', error);
+                    return false;
+                }
+            });
+        } catch (error) {
+            console.error('❌ Error finding chat by participant:', error);
+            return null;
+        }
     };
 
     return { findChatByParticipant, chats };

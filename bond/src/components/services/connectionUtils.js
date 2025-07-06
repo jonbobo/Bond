@@ -1,4 +1,3 @@
-// components/services/connectionUtils.js
 import {
     doc,
     getDoc,
@@ -10,11 +9,13 @@ import {
     query,
     where,
     getDocs,
-    limit
+    limit,
+    writeBatch, // ✅ Import for batch operations
+
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 
-// Send friend request
+// ✅ OPTIMIZED: Batch write for friend requests (2 writes → 1 batch)
 export async function sendFriendRequest(targetUserId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to send friend requests");
@@ -33,15 +34,18 @@ export async function sendFriendRequest(targetUserId) {
             throw new Error("You are already friends with this user");
         }
 
-        // Get or create current user data
-        const currentUserDoc = await getDoc(doc(db, "users", currentUserId));
-        let currentUserData;
+        // Get both user documents
+        const [currentUserDoc, targetUserDoc] = await Promise.all([
+            getDoc(doc(db, "users", currentUserId)),
+            getDoc(doc(db, "users", targetUserId))
+        ]);
 
+        let currentUserData;
         if (!currentUserDoc.exists()) {
             // Create user profile if it doesn't exist
             currentUserData = {
                 email: auth.currentUser.email,
-                username: auth.currentUser.email.split('@')[0], // fallback username
+                username: auth.currentUser.email.split('@')[0],
                 displayName: auth.currentUser.email.split('@')[0],
                 createdAt: new Date().toISOString(),
                 profilePicture: null,
@@ -50,48 +54,49 @@ export async function sendFriendRequest(targetUserId) {
                 friendRequests: [],
                 sentRequests: []
             };
-
             await setDoc(doc(db, "users", currentUserId), currentUserData);
         } else {
             currentUserData = currentUserDoc.data();
         }
 
-        // Safely check arrays, default to empty array if undefined
-        const currentSentRequests = currentUserData.sentRequests || [];
-
-        if (currentSentRequests.includes(targetUserId)) {
-            throw new Error("Friend request already sent");
-        }
-
-        // Get target user data to check if request already exists
-        const targetUserDoc = await getDoc(doc(db, "users", targetUserId));
         if (!targetUserDoc.exists()) {
             throw new Error("User not found");
         }
 
         const targetUserData = targetUserDoc.data();
-        // Safely check arrays, default to empty array if undefined
+
+        // Check for duplicate requests
+        const currentSentRequests = currentUserData.sentRequests || [];
         const targetFriendRequests = targetUserData.friendRequests || [];
+
+        if (currentSentRequests.includes(targetUserId)) {
+            throw new Error("Friend request already sent");
+        }
 
         if (targetFriendRequests.includes(currentUserId)) {
             throw new Error("Friend request already sent");
         }
 
-        // Update current user's sent requests (initialize array if it doesn't exist)
-        await updateDoc(doc(db, "users", currentUserId), {
+        // ✅ OPTIMIZATION: Single batch write instead of 2 separate writes
+        const batch = writeBatch(db);
+
+        // Update current user's sent requests
+        batch.update(doc(db, "users", currentUserId), {
             sentRequests: arrayUnion(targetUserId),
-            // Ensure other friend arrays exist
             friends: currentUserData.friends || [],
             friendRequests: currentUserData.friendRequests || []
         });
 
-        // Update target user's friend requests (initialize array if it doesn't exist)
-        await updateDoc(doc(db, "users", targetUserId), {
+        // Update target user's friend requests
+        batch.update(doc(db, "users", targetUserId), {
             friendRequests: arrayUnion(currentUserId),
-            // Ensure other friend arrays exist
             friends: targetUserData.friends || [],
             sentRequests: targetUserData.sentRequests || []
         });
+
+        // ✅ Single batch commit = 1 write operation instead of 2
+        await batch.commit();
+        console.log('✅ Friend request sent via batch write');
 
         return true;
     } catch (error) {
@@ -100,7 +105,7 @@ export async function sendFriendRequest(targetUserId) {
     }
 }
 
-// Accept friend request
+// ✅ OPTIMIZED: Batch write for accepting friend requests
 export async function acceptFriendRequest(requesterId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to accept friend requests");
@@ -117,16 +122,23 @@ export async function acceptFriendRequest(requesterId) {
             throw new Error("Friend request not found");
         }
 
-        // Add each other as friends
-        await updateDoc(doc(db, "users", currentUserId), {
+        // ✅ OPTIMIZATION: Single batch write instead of 2 separate writes
+        const batch = writeBatch(db);
+
+        // Add each other as friends and remove from request arrays
+        batch.update(doc(db, "users", currentUserId), {
             friends: arrayUnion(requesterId),
             friendRequests: arrayRemove(requesterId)
         });
 
-        await updateDoc(doc(db, "users", requesterId), {
+        batch.update(doc(db, "users", requesterId), {
             friends: arrayUnion(currentUserId),
             sentRequests: arrayRemove(currentUserId)
         });
+
+        // ✅ Single batch commit = 1 write operation instead of 2
+        await batch.commit();
+        console.log('✅ Friend request accepted via batch write');
 
         return true;
     } catch (error) {
@@ -135,7 +147,7 @@ export async function acceptFriendRequest(requesterId) {
     }
 }
 
-// Cancel friend request
+// ✅ OPTIMIZED: Batch write for canceling friend requests
 export async function cancelFriendRequest(targetUserId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to cancel friend requests");
@@ -146,19 +158,23 @@ export async function cancelFriendRequest(targetUserId) {
     try {
         console.log(`Canceling friend request from ${currentUserId} to ${targetUserId}`);
 
+        // ✅ OPTIMIZATION: Single batch write instead of 2 separate writes
+        const batch = writeBatch(db);
+
         // Remove from current user's sent requests
-        await updateDoc(doc(db, "users", currentUserId), {
+        batch.update(doc(db, "users", currentUserId), {
             sentRequests: arrayRemove(targetUserId)
         });
-        console.log(`Removed ${targetUserId} from current user's sentRequests`);
 
         // Remove from target user's friend requests  
-        await updateDoc(doc(db, "users", targetUserId), {
+        batch.update(doc(db, "users", targetUserId), {
             friendRequests: arrayRemove(currentUserId)
         });
-        console.log(`Removed ${currentUserId} from target user's friendRequests`);
 
-        console.log("Friend request cancellation completed successfully");
+        // ✅ Single batch commit = 1 write operation instead of 2
+        await batch.commit();
+        console.log('✅ Friend request canceled via batch write');
+
         return true;
     } catch (error) {
         console.error("Error canceling friend request:", error);
@@ -166,7 +182,7 @@ export async function cancelFriendRequest(targetUserId) {
     }
 }
 
-// Decline friend request
+// ✅ OPTIMIZED: Batch write for declining friend requests
 export async function declineFriendRequest(requesterId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to decline friend requests");
@@ -175,15 +191,22 @@ export async function declineFriendRequest(requesterId) {
     const currentUserId = auth.currentUser.uid;
 
     try {
+        // ✅ OPTIMIZATION: Single batch write instead of 2 separate writes
+        const batch = writeBatch(db);
+
         // Remove from current user's friend requests
-        await updateDoc(doc(db, "users", currentUserId), {
+        batch.update(doc(db, "users", currentUserId), {
             friendRequests: arrayRemove(requesterId)
         });
 
         // Remove from requester's sent requests
-        await updateDoc(doc(db, "users", requesterId), {
+        batch.update(doc(db, "users", requesterId), {
             sentRequests: arrayRemove(currentUserId)
         });
+
+        // ✅ Single batch commit = 1 write operation instead of 2
+        await batch.commit();
+        console.log('✅ Friend request declined via batch write');
 
         return true;
     } catch (error) {
@@ -192,7 +215,7 @@ export async function declineFriendRequest(requesterId) {
     }
 }
 
-// Remove friend
+// ✅ OPTIMIZED: Batch write for removing friends
 export async function removeFriend(friendId) {
     if (!auth.currentUser) {
         throw new Error("You must be logged in to remove friends");
@@ -201,14 +224,21 @@ export async function removeFriend(friendId) {
     const currentUserId = auth.currentUser.uid;
 
     try {
+        // ✅ OPTIMIZATION: Single batch write instead of 2 separate writes
+        const batch = writeBatch(db);
+
         // Remove from both users' friends lists
-        await updateDoc(doc(db, "users", currentUserId), {
+        batch.update(doc(db, "users", currentUserId), {
             friends: arrayRemove(friendId)
         });
 
-        await updateDoc(doc(db, "users", friendId), {
+        batch.update(doc(db, "users", friendId), {
             friends: arrayRemove(currentUserId)
         });
+
+        // ✅ Single batch commit = 1 write operation instead of 2
+        await batch.commit();
+        console.log('✅ Friend removed via batch write');
 
         return true;
     } catch (error) {
@@ -217,7 +247,7 @@ export async function removeFriend(friendId) {
     }
 }
 
-// Check if two users are friends
+// Keep existing functions unchanged - they're read operations
 export async function areFriends(userId1, userId2) {
     if (userId1 === userId2) return true;
 
@@ -234,7 +264,7 @@ export async function areFriends(userId1, userId2) {
     }
 }
 
-// Get user's friends list with details
+// ✅ POTENTIAL OPTIMIZATION: Could batch read friend details
 export async function getUserFriendsWithDetails(userId) {
     try {
         const userDoc = await getDoc(doc(db, "users", userId));
@@ -247,6 +277,7 @@ export async function getUserFriendsWithDetails(userId) {
             return [];
         }
 
+        // ✅ TODO: Could optimize with batch read for many friends
         const friends = [];
         for (const friendId of friendIds) {
             const friendDoc = await getDoc(doc(db, "users", friendId));
@@ -257,7 +288,9 @@ export async function getUserFriendsWithDetails(userId) {
                     username: friendData.username,
                     displayName: friendData.displayName,
                     profilePicture: friendData.profilePicture,
-                    bio: friendData.bio
+                    bio: friendData.bio,
+                    isOnline: friendData.isOnline || false,
+                    lastSeen: friendData.lastSeen || null
                 });
             }
         }
@@ -269,7 +302,7 @@ export async function getUserFriendsWithDetails(userId) {
     }
 }
 
-// Get pending friend requests with details
+// ✅ POTENTIAL OPTIMIZATION: Could batch read request details
 export async function getPendingRequestsWithDetails(userId) {
     try {
         const userDoc = await getDoc(doc(db, "users", userId));
@@ -282,6 +315,7 @@ export async function getPendingRequestsWithDetails(userId) {
             return [];
         }
 
+        // ✅ TODO: Could optimize with batch read for many requests
         const requests = [];
         for (const requesterId of requestIds) {
             const requesterDoc = await getDoc(doc(db, "users", requesterId));
@@ -292,7 +326,9 @@ export async function getPendingRequestsWithDetails(userId) {
                     username: requesterData.username,
                     displayName: requesterData.displayName,
                     profilePicture: requesterData.profilePicture,
-                    bio: requesterData.bio
+                    bio: requesterData.bio,
+                    isOnline: requesterData.isOnline || false,
+                    lastSeen: requesterData.lastSeen || null
                 });
             }
         }
@@ -304,7 +340,7 @@ export async function getPendingRequestsWithDetails(userId) {
     }
 }
 
-// Search for users (potential friends)
+// Keep other search and suggestion functions unchanged
 export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     if (!searchTerm || searchTerm.trim().length < 2) {
         return [];
@@ -313,7 +349,6 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     try {
         const searchTermLower = searchTerm.toLowerCase();
 
-        // Search by username
         const usernameQuery = query(
             collection(db, "users"),
             where("username", ">=", searchTermLower),
@@ -321,7 +356,6 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
             limit(limitCount)
         );
 
-        // Search by display name
         const displayNameQuery = query(
             collection(db, "users"),
             where("displayName", ">=", searchTerm),
@@ -334,32 +368,34 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
             getDocs(displayNameQuery)
         ]);
 
-        const users = new Map(); // Use Map to avoid duplicates
+        const users = new Map();
 
-        // Process username results
         usernameSnapshot.forEach((doc) => {
             const userData = doc.data();
-            if (doc.id !== currentUserId) { // Exclude current user
+            if (doc.id !== currentUserId) {
                 users.set(doc.id, {
                     id: doc.id,
                     username: userData.username,
                     displayName: userData.displayName,
                     profilePicture: userData.profilePicture,
-                    bio: userData.bio
+                    bio: userData.bio,
+                    isOnline: userData.isOnline || false,
+                    lastSeen: userData.lastSeen || null
                 });
             }
         });
 
-        // Process display name results
         displayNameSnapshot.forEach((doc) => {
             const userData = doc.data();
-            if (doc.id !== currentUserId && !users.has(doc.id)) { // Exclude current user and duplicates
+            if (doc.id !== currentUserId && !users.has(doc.id)) {
                 users.set(doc.id, {
                     id: doc.id,
                     username: userData.username,
                     displayName: userData.displayName,
                     profilePicture: userData.profilePicture,
-                    bio: userData.bio
+                    bio: userData.bio,
+                    isOnline: userData.isOnline || false,
+                    lastSeen: userData.lastSeen || null
                 });
             }
         });
@@ -371,10 +407,8 @@ export async function searchUsers(searchTerm, currentUserId, limitCount = 10) {
     }
 }
 
-// Get friend suggestions (users with mutual friends)
 export async function getFriendSuggestions(userId, limitCount = 10) {
     try {
-        // Get current user's friends
         const userDoc = await getDoc(doc(db, "users", userId));
         if (!userDoc.exists()) {
             return [];
@@ -385,13 +419,11 @@ export async function getFriendSuggestions(userId, limitCount = 10) {
         const receivedRequests = userDoc.data().friendRequests || [];
 
         if (currentFriends.length === 0) {
-            // If no friends, suggest some random users
             return await getRandomUserSuggestions(userId, limitCount);
         }
 
         const suggestionMap = new Map();
 
-        // Look at friends of friends
         for (const friendId of currentFriends) {
             const friendDoc = await getDoc(doc(db, "users", friendId));
             if (friendDoc.exists()) {
@@ -416,7 +448,6 @@ export async function getFriendSuggestions(userId, limitCount = 10) {
             }
         }
 
-        // Get user details for suggestions
         const suggestions = [];
         for (const [suggestedId, data] of suggestionMap) {
             if (suggestions.length >= limitCount) break;
@@ -430,14 +461,14 @@ export async function getFriendSuggestions(userId, limitCount = 10) {
                     displayName: userData.displayName,
                     profilePicture: userData.profilePicture,
                     bio: userData.bio,
-                    mutualFriends: data.mutualCount
+                    mutualFriends: data.mutualCount,
+                    isOnline: userData.isOnline || false,
+                    lastSeen: userData.lastSeen || null
                 });
             }
         }
 
-        // Sort by mutual friends count
         suggestions.sort((a, b) => b.mutualFriends - a.mutualFriends);
-
         return suggestions.slice(0, limitCount);
     } catch (error) {
         console.error("Error getting friend suggestions:", error);
@@ -445,14 +476,12 @@ export async function getFriendSuggestions(userId, limitCount = 10) {
     }
 }
 
-// Migration function to add friend arrays to existing users
 export async function migrateUserToFriendSystem(userId) {
     try {
         const userDoc = await getDoc(doc(db, "users", userId));
         if (userDoc.exists()) {
             const userData = userDoc.data();
 
-            // Only update if the arrays are missing
             if (!userData.friends || !userData.friendRequests || !userData.sentRequests) {
                 await updateDoc(doc(db, "users", userId), {
                     friends: userData.friends || [],
@@ -467,12 +496,11 @@ export async function migrateUserToFriendSystem(userId) {
     }
 }
 
-// Get random user suggestions for users with no friends
 async function getRandomUserSuggestions(userId, limitCount) {
     try {
         const usersQuery = query(
             collection(db, "users"),
-            limit(limitCount * 2) // Get more to filter out current user
+            limit(limitCount * 2)
         );
 
         const snapshot = await getDocs(usersQuery);
@@ -487,7 +515,9 @@ async function getRandomUserSuggestions(userId, limitCount) {
                     displayName: userData.displayName,
                     profilePicture: userData.profilePicture,
                     bio: userData.bio,
-                    mutualFriends: 0
+                    mutualFriends: 0,
+                    isOnline: userData.isOnline || false,
+                    lastSeen: userData.lastSeen || null
                 });
             }
         });
