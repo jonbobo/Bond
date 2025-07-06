@@ -41,6 +41,33 @@ body {
     height: calc(100vh - 64px);
     overflow-x: hidden;
     overflow-y: auto;
+    /* Apply centering globally, messages page will override with its own styles */
+    margin-right: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Exception: When containing messages page, reset to normal layout */
+.main-content .messages-page {
+    /* The messages-page CSS will handle its own layout with !important rules */
+    align-self: stretch;
+    width: 100%;
+}
+
+/* Homepage gets the centered layout automatically */
+.main-content .homepage {
+    width: 100%;
+    max-width: 600px;
+    margin: 0;
+}
+
+/* Other pages that need full width */
+.main-content>*:not(.homepage):not(.messages-page) {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    align-self: stretch;
 }
 
 /* ENHANCED Header Styles */
@@ -850,6 +877,15 @@ textarea {
 
     .main-content {
         margin: 20px;
+        margin-right: 20px;
+        /* Remove contacts sidebar margin on mobile */
+        align-items: stretch;
+        /* Don't center on mobile */
+    }
+
+    .main-content .homepage {
+        max-width: none;
+        /* Use full width on mobile */
     }
 
     .header-search {
@@ -1091,12 +1127,22 @@ textarea {
         display: none;
         /* Hide on smaller screens to save space */
     }
+
+    .main-content {
+        margin-right: 0;
+        /* Remove contacts sidebar margin when hidden */
+    }
 }
 
 /* Alternative: Collapsible on medium screens */
 @media (max-width: 1400px) and (min-width: 1201px) {
     .contacts-sidebar {
         width: 240px;
+    }
+
+    .main-content {
+        margin-right: 240px;
+        /* Adjust for smaller contacts sidebar */
     }
 
     .contact-name {
