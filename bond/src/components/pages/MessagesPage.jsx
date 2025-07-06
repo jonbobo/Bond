@@ -8,8 +8,7 @@ import {
 } from '../contexts/ChatContext';
 import {
     searchUsers,
-    subscribeToMessages, // ✅ NEW: Import real-time listener
-    getMessagesOnce
+    subscribeToMessages
 } from '../services/chatUtils';
 import './MessagesPage.css';
 
@@ -22,21 +21,21 @@ const MessagesPage = () => {
     const [showNewMessageModal, setShowNewMessageModal] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
 
-    // ✅ NEW: Separate state for messages (real-time for active chat)
+    // Real-time messages state
     const [messages, setMessages] = useState([]);
     const [messagesLoading, setMessagesLoading] = useState(false);
     const [sending, setSending] = useState(false);
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
-    const messageListenerRef = useRef(null); // ✅ NEW: Track active listener
+    const messageListenerRef = useRef(null);
 
-    // Chat context hooks (only for chat list and actions)
+    // Chat context hooks
     const { chats, loading } = useChatState();
     const { sendMessage, markAsRead, createOrGetChat } = useChatActions();
     const { findChatByParticipant } = useFindChatByParticipant();
 
-    // ✅ NEW: Setup real-time listener for selected chat
+    // Setup real-time listener for selected chat
     useEffect(() => {
         if (!selectedChatId) {
             // Clear messages when no chat selected
@@ -53,7 +52,7 @@ const MessagesPage = () => {
         console.log('🔄 Setting up real-time listener for chat:', selectedChatId);
         setMessagesLoading(true);
 
-        // ✅ Real-time listener for active chat (like FloatingChat)
+        // Real-time listener for active chat
         const unsubscribe = subscribeToMessages(selectedChatId, (newMessages) => {
             console.log('📝 Real-time messages update:', newMessages.length);
             setMessages(newMessages);
@@ -88,7 +87,6 @@ const MessagesPage = () => {
             if (existingChat) {
                 console.log('✅ Found existing chat, syncing to MessagesPage:', existingChat.id);
                 setSelectedChatId(existingChat.id);
-                // ✅ No need to manually load - real-time listener will handle it
             }
         } catch (error) {
             console.error('❌ Error handling floating chat open:', error);
@@ -144,7 +142,7 @@ const MessagesPage = () => {
         return () => clearTimeout(searchTimeout);
     }, [searchTerm, user.uid]);
 
-    // ✅ IMPROVED: Chat selection with real-time listener
+    // Chat selection with real-time listener
     const handleChatSelect = React.useCallback((chatId) => {
         console.log('📱 Chat selected in MessagesPage:', chatId);
 
@@ -160,10 +158,9 @@ const MessagesPage = () => {
         }
 
         setSelectedChatId(chatId);
-        // ✅ Real-time listener will handle loading messages automatically
     }, [selectedChatId, chats]);
 
-    // ✅ IMPROVED: Send message with immediate UI update
+    // Send message with immediate UI update
     const handleSendMessage = React.useCallback(async (e) => {
         e.preventDefault();
 
@@ -177,7 +174,6 @@ const MessagesPage = () => {
 
         try {
             await sendMessage(selectedChatId, messageToSend);
-            // ✅ No need to manually refresh - real-time listener will show the message
 
             setTimeout(() => {
                 inputRef.current?.focus();
@@ -206,28 +202,11 @@ const MessagesPage = () => {
             setShowNewMessageModal(false);
             setSearchTerm('');
             setSearchResults([]);
-            // ✅ Real-time listener will load messages automatically
         } catch (error) {
             console.error('Error creating chat:', error);
             alert('Failed to start chat. Please try again.');
         }
     }, [createOrGetChat]);
-
-    // ✅ NEW: Manual refresh using getMessagesOnce (for troubleshooting)
-    const handleRefreshMessages = React.useCallback(async () => {
-        if (selectedChatId) {
-            console.log('🔄 Manually refreshing messages');
-            setMessagesLoading(true);
-            try {
-                const freshMessages = await getMessagesOnce(selectedChatId, 50);
-                setMessages(freshMessages);
-            } catch (error) {
-                console.error('Error refreshing messages:', error);
-            } finally {
-                setMessagesLoading(false);
-            }
-        }
-    }, [selectedChatId]);
 
     // Formatting functions
     const formatTime = React.useCallback((timestamp) => {
@@ -380,7 +359,6 @@ const MessagesPage = () => {
                                 </svg>
                                 <h3>Welcome to Messages</h3>
                                 <p>Click on a conversation to start messaging</p>
-
                             </div>
                         </div>
                     ) : (
@@ -397,36 +375,9 @@ const MessagesPage = () => {
                                         </div>
                                         <div className="user-status">
                                             @{selectedChat?.otherParticipant?.username || 'unknown'}
-                                            {/* ✅ Show real-time indicator */}
-                                            <span style={{
-                                                marginLeft: '8px',
-                                                color: '#48bb78',
-                                                fontSize: '0.8rem'
-                                            }}>
-                                                • Live
-                                            </span>
                                         </div>
                                     </div>
                                 </div>
-                                {/* ✅ Keep manual refresh for troubleshooting */}
-                                <button
-                                    onClick={handleRefreshMessages}
-                                    disabled={messagesLoading}
-                                    style={{
-                                        background: 'none',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '6px',
-                                        padding: '8px 12px',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        fontSize: '0.8rem',
-                                        color: '#667eea'
-                                    }}
-                                >
-                                    {messagesLoading ? '⏳' : '🔄'} Refresh
-                                </button>
                             </div>
 
                             {/* Messages */}
