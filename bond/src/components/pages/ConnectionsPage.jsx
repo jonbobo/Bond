@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { useLocation } from 'react-router-dom'; // Add this import
+import { useLocation } from 'react-router-dom';
 import { auth, db } from '../services/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import {
@@ -27,11 +27,11 @@ const dataCache = {
 
 const ConnectionsPage = () => {
     const [user] = useAuthState(auth);
-    const location = useLocation(); // Add this hook
+    const location = useLocation();
 
     // Get initial tab from URL parameter
     const getInitialTab = () => {
-        const urlParams = new URLSearchParams(location.search); // Use location.search
+        const urlParams = new URLSearchParams(location.search);
         const tabParam = urlParams.get('tab');
         return ['friends', 'requests', 'suggestions'].includes(tabParam) ? tabParam : 'friends';
     };
@@ -52,7 +52,7 @@ const ConnectionsPage = () => {
         if (tabParam && ['friends', 'requests', 'suggestions'].includes(tabParam)) {
             setActiveTab(tabParam);
         }
-    }, [location.search]); // Dependency on location.search will trigger when URL params change
+    }, [location.search]);
 
     useEffect(() => {
         const loadData = async () => {
@@ -190,6 +190,25 @@ const ConnectionsPage = () => {
         } catch (error) {
             console.error('Error searching users:', error);
         }
+    };
+
+    // ✅ NEW: Handle opening FloatingChat for a friend
+    const handleOpenChat = (friend) => {
+        console.log('💬 Opening chat with friend:', friend.displayName);
+
+        // Dispatch custom event to open floating chat (same as ContactsSidebar)
+        window.dispatchEvent(new CustomEvent('openFloatingChat', {
+            detail: {
+                friend: {
+                    id: friend.id,
+                    displayName: friend.displayName,
+                    username: friend.username,
+                    profilePicture: friend.profilePicture,
+                    isOnline: friend.isOnline || false,
+                    lastSeen: friend.lastSeen
+                }
+            }
+        }));
     };
 
     const handleAcceptRequest = async (requesterId) => {
@@ -361,7 +380,7 @@ const ConnectionsPage = () => {
                         <>
                             <button
                                 className="action-btn message"
-                                onClick={() => onMessage && onMessage(person.id)}
+                                onClick={() => onMessage && onMessage(person)}
                             >
                                 Message
                             </button>
@@ -504,9 +523,7 @@ const ConnectionsPage = () => {
                                             person={friend}
                                             type="friend"
                                             onRemove={handleRemoveFriend}
-                                            onMessage={(friendId) => {
-                                                console.log('Message friend:', friendId);
-                                            }}
+                                            onMessage={handleOpenChat} // ✅ Updated to use handleOpenChat
                                         />
                                     ))
                                 )}
