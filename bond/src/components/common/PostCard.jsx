@@ -2,11 +2,15 @@
 import React, { useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../services/firebase';
+import { deletePost } from '../services/postUtils';
 import CommentSection from './CommentSection';
 
-const PostCard = ({ post, onLike, onPostUpdate }) => {
+const PostCard = ({ post, onLike, onPostUpdate, onPostDelete }) => {
     const [user] = useAuthState(auth);
     const [showComments, setShowComments] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [showMenu, setShowMenu] = useState(false);
 
     const formatTimeAgo = (timestamp) => {
         if (!timestamp) return 'Just now';
@@ -36,6 +40,41 @@ const PostCard = ({ post, onLike, onPostUpdate }) => {
         setShowComments(!showComments);
     };
 
+    const handleDeleteClick = () => {
+        setShowDeleteConfirm(true);
+        setShowMenu(false);
+    };
+
+    const handleMenuToggle = () => {
+        setShowMenu(!showMenu);
+    };
+
+    const handleDeleteConfirm = async () => {
+        try {
+            setIsDeleting(true);
+            await deletePost(post.id);
+
+            // Notify parent component to remove post from UI
+            if (onPostDelete) {
+                onPostDelete(post.id);
+            }
+
+            console.log('✅ Post deleted successfully');
+        } catch (error) {
+            console.error('❌ Error deleting post:', error);
+            alert('Failed to delete post. Please try again.');
+        } finally {
+            setIsDeleting(false);
+            setShowDeleteConfirm(false);
+        }
+    };
+
+    const handleDeleteCancel = () => {
+        setShowDeleteConfirm(false);
+    };
+
+    // Check if current user is the post author
+    const isPostOwner = user?.uid === post.authorId;
     const isLiked = post.likes?.includes(user?.uid);
     const likeCount = post.likeCount || 0;
     const commentCount = post.commentCount || 0;
@@ -47,7 +86,8 @@ const PostCard = ({ post, onLike, onPostUpdate }) => {
             border: '1px solid #e2e8f0',
             marginBottom: '16px',
             overflow: 'hidden',
-            transition: 'box-shadow 0.2s ease'
+            transition: 'box-shadow 0.2s ease',
+            position: 'relative'
         }}>
             {/* Post Header */}
             <div className="post-header" style={{
@@ -93,6 +133,77 @@ const PostCard = ({ post, onLike, onPostUpdate }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* Menu Button - Only show for post owner */}
+                {isPostOwner && (
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={handleMenuToggle}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '8px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#718096',
+                                transition: 'background-color 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => e.target.style.backgroundColor = '#f7fafc'}
+                            onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="5" cy="12" r="1" />
+                                <circle cx="12" cy="12" r="1" />
+                                <circle cx="19" cy="12" r="1" />
+                            </svg>
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {showMenu && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: '0',
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                                zIndex: 10,
+                                minWidth: '140px',
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap'
+                            }}>
+                                <button
+                                    onClick={handleDeleteClick}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        border: 'none',
+                                        background: 'none',
+                                        cursor: 'pointer',
+                                        color: '#e53e3e',
+                                        fontSize: '0.9rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        transition: 'background-color 0.2s ease'
+                                    }}
+                                    onMouseEnter={(e) => e.target.style.backgroundColor = '#fed7d7'}
+                                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="3,6 5,6 21,6" />
+                                        <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2" />
+                                    </svg>
+                                    Delete Post
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Post Content */}
@@ -210,6 +321,101 @@ const PostCard = ({ post, onLike, onPostUpdate }) => {
                         isVisible={showComments}
                     />
                 </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        maxWidth: '400px',
+                        width: '100%',
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)'
+                    }}>
+                        <h3 style={{
+                            margin: '0 0 12px',
+                            fontSize: '1.25rem',
+                            fontWeight: '600',
+                            color: '#2d3748'
+                        }}>
+                            Delete Post
+                        </h3>
+                        <p style={{
+                            margin: '0 0 20px',
+                            color: '#718096',
+                            lineHeight: '1.5'
+                        }}>
+                            Are you sure you want to delete this post? This action cannot be undone.
+                        </p>
+                        <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            justifyContent: 'flex-end'
+                        }}>
+                            <button
+                                onClick={handleDeleteCancel}
+                                disabled={isDeleting}
+                                style={{
+                                    padding: '10px 20px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '8px',
+                                    background: 'white',
+                                    color: '#4a5568',
+                                    cursor: isDeleting ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDeleteConfirm}
+                                disabled={isDeleting}
+                                style={{
+                                    padding: '10px 20px',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    background: isDeleting ? '#fc8181' : '#e53e3e',
+                                    color: 'white',
+                                    cursor: isDeleting ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                {isDeleting ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Click outside to close menu */}
+            {showMenu && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 5
+                    }}
+                    onClick={() => setShowMenu(false)}
+                />
             )}
         </div>
     );

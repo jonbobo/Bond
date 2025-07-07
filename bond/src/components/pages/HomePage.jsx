@@ -1,4 +1,4 @@
-// File: src/components/pages/HomePage.jsx - WITH COMMENT SYSTEM
+// File: src/components/pages/HomePage.jsx - WITH DELETE FUNCTIONALITY
 import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../services/firebase';
@@ -228,6 +228,16 @@ const HomePage = () => {
         );
     };
 
+    // ✅ NEW: Handle post deletion
+    const handlePostDelete = (postId) => {
+        console.log('🗑️ Removing deleted post from UI:', postId);
+
+        // Remove the post from the state immediately
+        setPosts(prevPosts =>
+            prevPosts.filter(post => post.id !== postId)
+        );
+    };
+
     const handlePostCreated = async () => {
         // Real-time listener will automatically pick up new posts
         console.log('✅ New post created - real-time listener will update feed');
@@ -310,6 +320,7 @@ const HomePage = () => {
                             post={post}
                             onLike={handleLike}
                             onPostUpdate={handlePostUpdate}
+                            onPostDelete={handlePostDelete}
                         />
                     ))
                 ) : (

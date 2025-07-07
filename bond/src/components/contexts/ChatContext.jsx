@@ -7,7 +7,7 @@ import {
     sendMessage as sendMessageService,
     markChatAsRead as markChatAsReadService,
     createOrGetChat as createOrGetChatService,
-    getMessagesOnce // ✅ NEW: Get messages without listener
+    getMessagesOnce // 
 } from '../services/chatUtils';
 
 // Action types
