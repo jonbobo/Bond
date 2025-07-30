@@ -1,8 +1,6 @@
 /* FloatingChat.css */
 .floating-chat {
-    position: fixed;
-    bottom: 0;
-    right: 20px;
+    position: relative;
     width: 320px;
     height: 400px;
     background: white;
@@ -10,7 +8,6 @@
     border-bottom: none;
     border-radius: 8px 8px 0 0;
     box-shadow: 0 0 16px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
     display: flex;
     flex-direction: column;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -289,7 +286,6 @@
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .floating-chat {
-        right: 10px;
         width: 280px;
     }
 
